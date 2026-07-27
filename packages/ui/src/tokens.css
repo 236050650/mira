@@ -1,0 +1,25 @@
+:root {
+  --mira-bg: #f4f0e6;
+  --mira-bg-elevated: #fffaf1;
+  --mira-ink: #1f1a16;
+  --mira-muted: #6d645a;
+  --mira-line: rgba(40, 32, 24, 0.12);
+  --mira-indigo: #3f4f73;
+  --mira-cinnabar: #a64b3c;
+  --mira-radius-card: 22px;
+  --mira-radius-control: 14px;
+  --mira-shadow: 0 18px 40px rgba(40, 32, 24, 0.08);
+  --mira-font-display: "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+  --mira-font-body: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+}
+
+[data-theme="dark"] {
+  --mira-bg: #17140f;
+  --mira-bg-elevated: #221c16;
+  --mira-ink: #f3ecdf;
+  --mira-muted: #b7aa9a;
+  --mira-line: rgba(243, 236, 223, 0.12);
+  --mira-indigo: #8fa0c4;
+  --mira-cinnabar: #d27a68;
+  --mira-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}

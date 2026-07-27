@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "MIRA",
+    "slug": "mira",
+    "scheme": "mira",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mira.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f6f4ee"
+      },
+      "package": "com.mira.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "290b2a19-3159-4a8b-a9ac-46788c9317a9"
+      }
+    }
+  }
+}

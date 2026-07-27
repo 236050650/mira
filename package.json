@@ -1,0 +1,32 @@
+{
+  "name": "mira",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MIRA persona simulator monorepo",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @mira/web",
+    "dev:api": "npm run dev -w @mira/api",
+    "dev:web": "npm run dev -w @mira/web",
+    "dev:mobile": "npm run start -w @mira/mobile",
+    "build": "npm run build -w @mira/contracts && npm run build -w @mira/domain && npm run build -w @mira/model-gateway && npm run build -w @mira/prompts && npm run build -w @mira/ui && npm run build -w @mira/api && npm run build -w @mira/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration -w @mira/api",
+    "test:model:live": "npm run test:model:live -w @mira/api",
+    "eval:persona": "tsx scripts/persona-eval.ts",
+    "db:generate": "npm run db:generate -w @mira/api",
+    "db:migrate": "npm run db:migrate -w @mira/api",
+    "db:seed": "npm run db:seed -w @mira/api",
+    "db:up": "docker compose -f docker/docker-compose.yml up -d",
+    "db:down": "docker compose -f docker/docker-compose.yml down"
+  },
+  "type": "module"
+}
