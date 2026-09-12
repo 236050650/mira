@@ -7,6 +7,25 @@ export type ApiMode = "demo" | "api";
 
 const MODE_OVERRIDE_KEY = "mira_api_mode_override";
 
+function isLoopbackUrl(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function isLocalBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "::1"
+  );
+}
+
 function readEnvApiUrl(): string | null {
   const viteUrl =
     typeof import.meta !== "undefined"
@@ -32,12 +51,12 @@ function readOverride(): ApiMode | null {
  */
 export function useApiMode() {
   const envApiUrl = useMemo(() => readEnvApiUrl(), []);
-  const defaultMode: ApiMode = envApiUrl ? "api" : "demo";
-  const canUseApiMode =
-    Boolean(envApiUrl) ||
-    (typeof window !== "undefined" &&
-      (window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1"));
+  const localBrowser = isLocalBrowser();
+  const envApiAvailable = Boolean(
+    envApiUrl && (localBrowser || !isLoopbackUrl(envApiUrl)),
+  );
+  const canUseApiMode = localBrowser || envApiAvailable;
+  const defaultMode: ApiMode = envApiAvailable ? "api" : "demo";
 
   const [override, setOverrideState] = useState<ApiMode | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -49,7 +68,7 @@ export function useApiMode() {
 
   const mode: ApiMode =
     hydrated && canUseApiMode ? (override ?? defaultMode) : "demo";
-  const apiUrl = envApiUrl ?? API_BASE_URL;
+  const apiUrl = canUseApiMode ? (envApiUrl ?? API_BASE_URL) : "/api/demo-chat";
 
   const setMode = useCallback((next: ApiMode | null) => {
     if (next === "api" && !canUseApiMode) {
