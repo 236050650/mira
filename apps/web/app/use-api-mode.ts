@@ -33,6 +33,11 @@ function readOverride(): ApiMode | null {
 export function useApiMode() {
   const envApiUrl = useMemo(() => readEnvApiUrl(), []);
   const defaultMode: ApiMode = envApiUrl ? "api" : "demo";
+  const canUseApiMode =
+    Boolean(envApiUrl) ||
+    (typeof window !== "undefined" &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1"));
 
   const [override, setOverrideState] = useState<ApiMode | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -42,15 +47,23 @@ export function useApiMode() {
     setHydrated(true);
   }, []);
 
-  const mode: ApiMode = hydrated ? (override ?? defaultMode) : "demo";
+  const mode: ApiMode =
+    hydrated && canUseApiMode ? (override ?? defaultMode) : "demo";
   const apiUrl = envApiUrl ?? API_BASE_URL;
 
   const setMode = useCallback((next: ApiMode | null) => {
+    if (next === "api" && !canUseApiMode) {
+      setOverrideState(null);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(MODE_OVERRIDE_KEY);
+      }
+      return;
+    }
     setOverrideState(next);
     if (typeof window === "undefined") return;
     if (next) localStorage.setItem(MODE_OVERRIDE_KEY, next);
     else localStorage.removeItem(MODE_OVERRIDE_KEY);
-  }, []);
+  }, [canUseApiMode]);
 
   return {
     mode,
@@ -58,6 +71,7 @@ export function useApiMode() {
     isDemoMode: mode === "demo",
     apiUrl,
     envApiUrl,
+    canUseApiMode,
     setMode,
     resetMode: () => setMode(null),
   };

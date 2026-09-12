@@ -1572,6 +1572,7 @@ function ProfileView({
   isApiMode,
   apiUrl,
   onToggleMode,
+  canUseApiMode,
   theme,
   onToggleTheme,
 }: {
@@ -1580,6 +1581,7 @@ function ProfileView({
   isApiMode?: boolean;
   apiUrl?: string;
   onToggleMode?: () => void;
+  canUseApiMode?: boolean;
   theme: "light" | "dark";
   onToggleTheme: () => void;
 }) {
@@ -1596,11 +1598,11 @@ function ProfileView({
         <section className="profile-mode-card">
           <div>
             <span><Zap size={16} />数据源</span>
-            <h3>{isApiMode ? "API 模式" : "Demo 模式"}</h3>
-            <p>{isApiMode ? `已连接 ${apiUrl}` : "使用本地模拟数据，无需后端"}</p>
+            <h3>{isApiMode ? "API 模式" : canUseApiMode ? "Demo 模式" : "Sites 云端演示"}</h3>
+            <p>{isApiMode ? `已连接 ${apiUrl}` : canUseApiMode ? "使用本地模拟数据" : "角色数据在浏览器中运行，聊天由云端 DeepSeek 生成"}</p>
           </div>
-          <Button className="secondary" onClick={onToggleMode}>
-            切换到 {isApiMode ? "Demo" : "API"}
+          <Button className="secondary" onClick={onToggleMode} disabled={!canUseApiMode}>
+            {canUseApiMode ? `切换到 ${isApiMode ? "Demo" : "API"}` : "云端后端已启用"}
           </Button>
         </section>
         <section className="profile-mode-card">
@@ -1837,7 +1839,7 @@ function UpgradeModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function PersonaApp() {
-  const { mode, isApiMode, apiUrl, setMode } = useApiMode();
+  const { mode, isApiMode, apiUrl, canUseApiMode, setMode } = useApiMode();
   const {
     personaList,
     favorites,
@@ -1955,6 +1957,10 @@ export default function PersonaApp() {
   }
 
   function toggleApiMode() {
+    if (!canUseApiMode) {
+      showToast("Sites 云端聊天已启用，无需连接本机 API");
+      return;
+    }
     setMode(isApiMode ? "demo" : "api");
     if (isApiMode) {
       showToast("已切换到演示数据，API 聊天记录仍然保留");
@@ -2039,8 +2045,8 @@ export default function PersonaApp() {
         <main className="main-area">
           {!isApiMode && (
             <div className="guest-banner">
-              <span><Sparkles size={16} />游客体验中：对话仅保存在当前浏览器</span>
-              <button onClick={() => { setMode("api"); navigate("auth"); }}>注册后同步数据</button>
+              <span><Sparkles size={16} />云端体验中：聊天由 DeepSeek 生成，对话仅保存在当前浏览器</span>
+              {canUseApiMode && <button onClick={() => { setMode("api"); navigate("auth"); }}>注册后同步数据</button>}
             </div>
           )}
           {route === "home" && (
@@ -2081,6 +2087,7 @@ export default function PersonaApp() {
               isApiMode={isApiMode}
               apiUrl={apiUrl}
               onToggleMode={toggleApiMode}
+              canUseApiMode={canUseApiMode}
               theme={theme}
               onToggleTheme={() => setTheme((value) => (value === "light" ? "dark" : "light"))}
             />
