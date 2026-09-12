@@ -1,4 +1,4 @@
-import { ErrorCodes, MODEL_PROFILES, resolveModelProfile, type ModelProfileId } from "@mira/contracts";
+import { ErrorCodes, MODEL_PROFILES, type ModelProfileId } from "@mira/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
@@ -21,16 +21,16 @@ export function registerModelRoutes(
     try {
       const profiles = await Promise.all(
         STATUS_PROFILE_IDS.map(async (profileId) => {
-          const profile = resolveModelProfile(profileId, deps.config.ollamaDefaultModel);
-          const provider = deps.gateway.resolveProviderForMode(
-            deps.config.modelMode === "mock" ? "mock" : profile.provider,
-          );
+          const profile = deps.gateway.resolveProfile(profileId);
+          const provider = deps.gateway.getProvider(profile.provider);
           const health = await provider.healthCheck();
           return {
-            id: profile.id,
+            id: profileId,
             provider: profile.provider,
             model: profile.model,
-            displayName: MODEL_PROFILES[profileId].displayName,
+            displayName: deps.config.modelMode === "local"
+              ? `${MODEL_PROFILES[profileId].displayName}（当前使用本地模型）`
+              : MODEL_PROFILES[profileId].displayName,
             available: health.ok,
             latencyMs: health.latencyMs ?? null,
             detail: health.detail ?? null,
@@ -58,14 +58,12 @@ export function registerModelRoutes(
 
       let profile;
       try {
-        profile = resolveModelProfile(body.profileId as ModelProfileId, deps.config.ollamaDefaultModel);
+        profile = deps.gateway.resolveProfile(body.profileId as ModelProfileId);
       } catch {
         return sendError(reply, request, 400, ErrorCodes.MODEL_PROFILE_INVALID, "模型配置无效");
       }
 
-      const provider = deps.gateway.resolveProviderForMode(
-        deps.config.modelMode === "mock" ? "mock" : profile.provider,
-      );
+      const provider = deps.gateway.getProvider(profile.provider);
       const health = await provider.healthCheck();
 
       return reply.send({

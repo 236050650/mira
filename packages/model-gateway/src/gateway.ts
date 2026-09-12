@@ -1,4 +1,4 @@
-import type { ProviderId } from "@mira/contracts";
+import { resolveModelProfile, type ModelProfile, type ProviderId } from "@mira/contracts";
 import { createDeepSeekProvider } from "./openai-compat-provider.js";
 import { createOllamaProvider } from "./ollama-provider.js";
 import { MockProvider } from "./mock-provider.js";
@@ -6,11 +6,19 @@ import type { ModelProvider } from "./types.js";
 
 export type ModelMode = "mock" | "local" | "remote";
 
+export function parseModelMode(value?: string): ModelMode {
+  const mode = value?.trim() || "mock";
+  if (mode === "live") return "remote";
+  if (mode === "mock" || mode === "local" || mode === "remote") return mode;
+  throw new Error("MODEL_MODE must be mock, local, or remote (live is a legacy alias)");
+}
+
 export type GatewayEnv = {
   mode: ModelMode;
   deepseekApiKey?: string;
   deepseekBaseUrl: string;
   deepseekDefaultModel: string;
+  deepseekPremiumModel?: string;
   ollamaBaseUrl: string;
   ollamaApiKey: string;
   ollamaDefaultModel: string;
@@ -24,7 +32,7 @@ export class ModelGateway {
   readonly dailyRemoteTokenBudget: number;
   private remoteTokensUsed = 0;
 
-  constructor(env: GatewayEnv) {
+  constructor(private readonly env: GatewayEnv) {
     this.mode = env.mode;
     this.dailyRemoteTokenBudget = env.dailyRemoteTokenBudget;
     this.providers.set("mock", new MockProvider());
@@ -73,6 +81,26 @@ export class ModelGateway {
     return this.getProvider(preferred);
   }
 
+  /** Resolve the provider and model together so mode overrides cannot split them. */
+  resolveProfile(profileId?: ModelProfile["id"]): ModelProfile {
+    const requested = resolveModelProfile(profileId, this.env.ollamaDefaultModel);
+    if (this.mode === "mock") {
+      return { ...requested, provider: "mock", model: "mock-persona" };
+    }
+    if (this.mode === "local") {
+      return resolveModelProfile("ollama-local", this.env.ollamaDefaultModel);
+    }
+    if (requested.provider === "deepseek") {
+      return {
+        ...requested,
+        model: requested.id === "deepseek-pro"
+          ? this.env.deepseekPremiumModel || requested.model
+          : this.env.deepseekDefaultModel,
+      };
+    }
+    return requested;
+  }
+
   getRemoteTokensUsed() {
     return this.remoteTokensUsed;
   }
@@ -91,12 +119,13 @@ export class ModelGateway {
 }
 
 export function createGatewayFromEnv(processEnv: NodeJS.ProcessEnv): ModelGateway {
-  const mode = (processEnv.MODEL_MODE as ModelMode) || "mock";
+  const mode = parseModelMode(processEnv.MODEL_MODE);
   return new ModelGateway({
     mode,
     deepseekApiKey: processEnv.DEEPSEEK_API_KEY,
     deepseekBaseUrl: processEnv.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
     deepseekDefaultModel: processEnv.DEEPSEEK_DEFAULT_MODEL || "deepseek-v4-flash",
+    deepseekPremiumModel: processEnv.DEEPSEEK_PREMIUM_MODEL,
     ollamaBaseUrl: processEnv.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
     ollamaApiKey: processEnv.OLLAMA_API_KEY || "ollama",
     ollamaDefaultModel: processEnv.OLLAMA_DEFAULT_MODEL || "qwen3.5:latest",

@@ -46,6 +46,7 @@ next-env.d.ts
 apps/api/drizzle/meta/*_snapshot.json
 *.log
 .DS_Store
+apps/api/.pglite-data/
 
 # app build outputs (keep packages/*/dist — workspace main entry)
 apps/**/dist/

@@ -68,6 +68,7 @@ export async function buildApp(options?: {
     DEEPSEEK_API_KEY: config.deepseekApiKey,
     DEEPSEEK_BASE_URL: config.deepseekBaseUrl,
     DEEPSEEK_DEFAULT_MODEL: config.deepseekDefaultModel,
+    DEEPSEEK_PREMIUM_MODEL: config.deepseekPremiumModel,
     OLLAMA_BASE_URL: config.ollamaBaseUrl,
     OLLAMA_API_KEY: config.ollamaApiKey,
     OLLAMA_DEFAULT_MODEL: config.ollamaDefaultModel,
@@ -86,6 +87,10 @@ export async function buildApp(options?: {
     }
     const userId = await auth.verifyAccessToken(token);
     if (!userId) {
+      return sendError(reply, request, 401, ErrorCodes.AUTH_TOKEN_EXPIRED, "登录已过期，请重新登录");
+    }
+    const user = await auth.getUser(userId);
+    if (!user) {
       return sendError(reply, request, 401, ErrorCodes.AUTH_TOKEN_EXPIRED, "登录已过期，请重新登录");
     }
     request.userId = userId;

@@ -179,13 +179,14 @@ function ApiModeToggle({
   onToggle: () => void;
   apiUrl: string;
 }) {
-  const label = mode === "api" ? "API" : "Demo";
+  const label = mode === "api" ? "API 数据" : "演示数据";
+  const nextLabel = mode === "api" ? "演示数据" : "API 数据";
   return (
     <button
       className="api-mode-toggle"
       onClick={onToggle}
-      aria-label={`当前数据源：${label}`}
-      title={`${label} · ${apiUrl}`}
+      aria-label={`当前数据源：${label}，点击切换到${nextLabel}`}
+      title={`当前：${label} · ${apiUrl}`}
     >
       <Zap size={14} />
       <span>{label}</span>
@@ -345,19 +346,14 @@ function AuthView({
 }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState(mode === "login" ? "demo@mira.app" : "");
-  const [password, setPassword] = useState(mode === "login" ? "mirademo" : "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [nickname, setNickname] = useState("");
   const previewPersonas = personaPreview ?? personas;
 
   useEffect(() => {
-    if (mode === "login") {
-      setEmail("demo@mira.app");
-      setPassword("mirademo");
-    } else {
-      setEmail("");
-      setPassword("");
-    }
+    setEmail("");
+    setPassword("");
   }, [mode]);
 
   function submit(event: FormEvent) {
@@ -495,7 +491,7 @@ function AuthView({
           <p className="auth-note">
             <ShieldCheck size={15} />
             {isApiMode
-              ? "API 模式将连接真实后端；也可切换 Demo 或使用上方按钮本地体验"
+              ? "API 模式没有预置账号；首次使用请先注册，也可直接体验 Demo"
               : "这是交互原型，账户与对话均为本地模拟数据"}
           </p>
         </div>
@@ -1037,6 +1033,14 @@ function ChatView({
   const endRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const replies = personaQuickReplies(persona);
+  const hasActiveAssistantMessage = Boolean(
+    typing &&
+      activeAssistantId &&
+      messages.some(
+        (message) =>
+          message.role === "assistant" && String(message.id) === activeAssistantId,
+      ),
+  );
 
   useEffect(() => {
     setShowMemory(window.matchMedia("(min-width: 1101px)").matches);
@@ -1114,8 +1118,7 @@ function ChatView({
             setMessages((items) =>
               items.map((message) =>
                 message.id === localAssistantId ||
-                message.id === assistantIdRef.current ||
-                (message.role === "assistant" && message.text === "")
+                message.id === assistantIdRef.current
                   ? { ...message, id: data.assistantMessageId }
                   : message,
               ),
@@ -1213,6 +1216,13 @@ function ChatView({
           onAccepted: (data) => {
             setGenerationId(data.generationId);
             setActiveAssistantId(data.assistantMessageId);
+            setMessages((items) =>
+              items.map((message) =>
+                String(message.id) === String(messageId)
+                  ? { ...message, id: data.assistantMessageId }
+                  : message,
+              ),
+            );
           },
           onDelta: (data) => {
             setMessages((items) =>
@@ -1315,40 +1325,67 @@ function ChatView({
           {loading && (
             <div className="chat-date"><span>正在同步历史消息…</span></div>
           )}
-          {messages.map((message) => (
-            <div key={message.id} className={`message-row ${message.role}`}>
-              {message.role === "assistant" && <Portrait persona={persona} />}
-              <div className="message-wrap">
-                <div className="message-bubble">{message.text}</div>
-                <div className="message-meta">
-                  <span>{message.time}</span>
-                  {message.role === "assistant" && (
-                    <span className="message-actions">
-                      <button
-                        type="button"
-                        aria-label="复制"
-                        onClick={() => void handleCopy(message.text)}
-                      >
-                        <Copy size={14} />
-                      </button>
-                      <button type="button" aria-label="收藏" onClick={() => showToast("已收藏到片段")}>
-                        <Bookmark size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="重新生成"
-                        disabled={typing && activeAssistantId === message.id}
-                        onClick={() => void handleRegenerate(String(message.id))}
-                      >
-                        <RotateCcw size={14} />
-                      </button>
-                    </span>
+          {messages.map((message) => {
+            const isActiveAssistant = Boolean(
+              typing &&
+                message.role === "assistant" &&
+                activeAssistantId &&
+                String(message.id) === activeAssistantId,
+            );
+
+            return (
+              <div key={message.id} className={`message-row ${message.role}`}>
+                {message.role === "assistant" && <Portrait persona={persona} />}
+                <div className="message-wrap">
+                  {isActiveAssistant && !message.text ? (
+                    <div className="typing-bubble"><span /><span /><span /></div>
+                  ) : (
+                    <div className="message-bubble">{message.text}</div>
+                  )}
+                  {isActiveAssistant ? (
+                    <div className="generation-meta">
+                      <small className="typing-label">
+                        {message.text
+                          ? `${persona.name} 正在回复…`
+                          : `${persona.name} 正在斟酌怎么回答…`}
+                      </small>
+                      {isApiMode && (
+                        <button type="button" className="stop-generation" onClick={() => void handleStop()}>
+                          停止生成
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="message-meta">
+                      <span>{message.time}</span>
+                      {message.role === "assistant" && (
+                        <span className="message-actions">
+                          <button
+                            type="button"
+                            aria-label="复制"
+                            onClick={() => void handleCopy(message.text)}
+                          >
+                            <Copy size={14} />
+                          </button>
+                          <button type="button" aria-label="收藏" onClick={() => showToast("已收藏到片段")}>
+                            <Bookmark size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="重新生成"
+                            onClick={() => void handleRegenerate(String(message.id))}
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
-            </div>
-          ))}
-          {typing && (
+            );
+          })}
+          {typing && !hasActiveAssistantMessage && (
             <div className="message-row assistant">
               <Portrait persona={persona} />
               <div className="message-wrap">
@@ -1779,6 +1816,11 @@ export default function PersonaApp() {
     createPersonaFlow,
   } = useMiraApp(isApiMode);
 
+  const toastUnlessExpired = (message: string) => {
+    if (message === "登录已过期，请重新登录") return;
+    showToast(message);
+  };
+
   const [route, setRoute] = useState<Route>("auth");
   const [selected, setSelected] = useState<Persona>(personas[0]);
   const [upgrade, setUpgrade] = useState(false);
@@ -1816,6 +1858,18 @@ export default function PersonaApp() {
     window.addEventListener("hashchange", syncFromHash);
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, [personaList]);
+
+  useEffect(() => {
+    if (!isApiMode || booting || !user || route !== "chat" || conversationId) return;
+
+    const [, personaKey] = window.location.hash.replace("#", "").split("/");
+    if (!personaKey) return;
+    const persona = findPersonaByKey(personaList, personaKey);
+    if (!persona) return;
+
+    setSelected(persona);
+    void openChat(persona);
+  }, [booting, conversationId, isApiMode, openChat, personaList, route, user]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1859,8 +1913,10 @@ export default function PersonaApp() {
   function toggleApiMode() {
     setMode(isApiMode ? "demo" : "api");
     if (isApiMode) {
+      showToast("已切换到演示数据，API 聊天记录仍然保留");
       navigate("home");
     } else {
+      showToast("已切换到 API 数据");
       navigate("auth");
     }
   }
@@ -1912,7 +1968,7 @@ export default function PersonaApp() {
         onDetail={() => navigate("detail", selected)}
         isApiMode={isApiMode}
         conversationId={conversationId}
-        onError={showToast}
+        onError={toastUnlessExpired}
       />
     );
   } else if (route === "create") {
@@ -1963,7 +2019,7 @@ export default function PersonaApp() {
               onPersona={(persona) => navigate("detail", persona)}
               isApiMode={isApiMode}
               onLoadCategory={isApiMode ? loadDiscoverPersonas : undefined}
-              onError={showToast}
+              onError={toastUnlessExpired}
             />
           )}
           {route === "messages" && (

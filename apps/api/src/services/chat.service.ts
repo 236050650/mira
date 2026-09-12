@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
   ErrorCodes,
-  resolveModelProfile,
   type MessageAcceptedEvent,
   type MessageCompletedEvent,
   type MessageDeltaEvent,
@@ -173,6 +172,10 @@ export class ChatService {
         assistantMessageId: existingAssistant.id,
         generationId: existingAssistant.generationId ?? "",
       });
+      input.onEvent("message.delta", {
+        assistantMessageId: existingAssistant.id,
+        delta: existingAssistant.content,
+      });
       input.onEvent("message.completed", {
         assistantMessageId: existingAssistant.id,
         finishReason: existingAssistant.finishReason ?? "stop",
@@ -290,15 +293,12 @@ export class ChatService {
     const { conversation, userMessage, userContent, signal, onEvent, isRegenerate } = params;
     let profile;
     try {
-      profile = resolveModelProfile(
-        params.modelProfileId as ModelProfileId,
-        this.config.ollamaDefaultModel,
-      );
+      profile = this.gateway.resolveProfile(params.modelProfileId);
     } catch {
       throw new ChatServiceError(ErrorCodes.MODEL_PROFILE_INVALID, "模型配置无效");
     }
 
-    const effectiveProvider = this.config.modelMode === "mock" ? "mock" : profile.provider;
+    const effectiveProvider = profile.provider;
     if (effectiveProvider === "deepseek" && this.gateway.mode === "remote" && !this.gateway.canUseRemote()) {
       onEvent("message.failed", {
         code: ErrorCodes.MODEL_BUDGET_EXCEEDED,
@@ -441,9 +441,7 @@ export class ChatService {
       chatMessages.push({ role: "user" as const, content: userContent });
     }
 
-    const provider = this.gateway.resolveProviderForMode(
-      this.config.modelMode === "mock" ? "mock" : profile.provider,
-    );
+    const provider = this.gateway.getProvider(profile.provider);
     const requestId = generation.id;
     const startedAt = Date.now();
     let firstTokenMs: number | undefined;
@@ -456,7 +454,7 @@ export class ChatService {
     try {
       for await (const chunk of provider.streamChat({
         requestId,
-        model: this.config.modelMode === "mock" ? "mock-persona" : profile.model,
+        model: profile.model,
         messages: chatMessages,
         maxOutputTokens: profile.maxOutputTokens,
         thinking: profile.thinking,

@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { parseModelMode } from "@mira/model-gateway";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,7 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.CORS_ORIGINS ||
       "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8081,http://127.0.0.1:8081"
     ).split(","),
-    modelMode: (env.MODEL_MODE as AppConfig["modelMode"]) || "mock",
+    modelMode: parseModelMode(env.MODEL_MODE),
     deepseekApiKey: env.DEEPSEEK_API_KEY,
     deepseekBaseUrl: env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
     deepseekDefaultModel: env.DEEPSEEK_DEFAULT_MODEL || "deepseek-v4-flash",

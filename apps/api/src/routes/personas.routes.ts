@@ -1,5 +1,6 @@
 import { CreatePersonaSchema } from "@mira/contracts";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { personaFavorites, personaVersions, personas } from "../db/schema.js";
@@ -52,19 +53,17 @@ export function registerPersonaRoutes(
 ) {
   app.get("/v1/personas", { preHandler: deps.requireAuth }, async (request, reply) => {
     try {
-      const query = request.query as {
-        category?: string;
-        query?: string;
-        favorite?: string;
-        limit?: string;
-      };
-      const limit = Math.min(Number(query.limit || 50), 100);
+      const query = z.object({
+        category: z.string().optional(), query: z.string().optional(), favorite: z.string().optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+        offset: z.coerce.number().int().min(0).default(0),
+      }).parse(request.query);
+      const { limit, offset } = query;
       const userId = request.userId!;
 
       let rows = await deps.db.query.personas.findMany({
         where: eq(personas.status, "published"),
-        orderBy: [desc(personas.createdAt)],
-        limit: 200,
+        orderBy: [desc(personas.createdAt), personas.id],
       });
 
       if (query.category && query.category !== "为你推荐") {
@@ -94,13 +93,17 @@ export function registerPersonaRoutes(
         rows = rows.filter((p) => favSet.has(p.id));
       }
 
-      const versions = await deps.db.query.personaVersions.findMany();
+      const page = rows.slice(offset, offset + limit);
+      const versionIds = page.flatMap(p => p.currentVersionId ? [p.currentVersionId] : []);
+      const versions = versionIds.length ? await deps.db.query.personaVersions.findMany({
+        where: inArray(personaVersions.id, versionIds),
+      }) : [];
       const versionMap = new Map(versions.map((v) => [v.id, v]));
 
-      const items = rows.slice(0, limit).map((p) =>
+      const items = page.map((p) =>
         mapPersona(p, p.currentVersionId ? versionMap.get(p.currentVersionId) : null, favSet.has(p.id)),
       );
-      return reply.send({ items });
+      return reply.send({ items, total: rows.length, hasMore: offset + items.length < rows.length });
     } catch (error) {
       return handleRouteError(error, request, reply);
     }

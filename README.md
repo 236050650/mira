@@ -98,10 +98,12 @@ npm run dev:mobile
 | 值 | 说明 |
 |---|---|
 | `mock` | 默认。集成测试与无密钥开发；聊天返回模拟流式回复 |
-| `live` | 调用 DeepSeek / Ollama 真实模型（需配置密钥与网络） |
-| `local` | 优先 Ollama 本地模型 |
+| `remote` | 按选择调用 DeepSeek / Ollama 真实模型（需配置密钥与网络）；兼容旧值 `live` |
+| `local` | 所有真实模型请求使用 `OLLAMA_DEFAULT_MODEL` 指定的 Ollama 模型 |
 
 在 `.env.local` 中设置 `MODEL_MODE`。模型状态可通过 `GET /v1/models/status`（需登录）查看。
+
+远程模式下，`DEEPSEEK_DEFAULT_MODEL` 和 `DEEPSEEK_PREMIUM_MODEL` 分别配置普通和高级模型的实际名称。模型状态、聊天请求与用量记录保持一致。未知的 `MODEL_MODE` 值会在启动时报错。
 
 ## 数据库
 

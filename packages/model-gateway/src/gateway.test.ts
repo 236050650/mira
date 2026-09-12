@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ModelGateway } from "./gateway.js";
+import { createGatewayFromEnv, ModelGateway, parseModelMode } from "./gateway.js";
 
 function gateway(budget: number) {
   return new ModelGateway({
@@ -27,5 +27,36 @@ describe("remote token budget", () => {
     const subject = gateway(0);
     expect(subject.canUseRemote()).toBe(false);
     expect(subject.resolveProviderForMode("ollama").id).toBe("ollama");
+  });
+});
+
+describe("model routing", () => {
+  it("routes auto and remote selections to the configured local model in local mode", () => {
+    const subject = createGatewayFromEnv({ MODEL_MODE: "local", OLLAMA_DEFAULT_MODEL: "local-test" });
+    for (const id of ["auto", "deepseek-flash", "deepseek-pro", "ollama-local"] as const) {
+      expect(subject.resolveProfile(id)).toMatchObject({
+        id: "ollama-local", provider: "ollama", model: "local-test",
+      });
+    }
+  });
+
+  it("honors configured remote model names and leaves explicit local requests local", () => {
+    const subject = createGatewayFromEnv({
+      MODEL_MODE: "remote", DEEPSEEK_DEFAULT_MODEL: "flash-test",
+      DEEPSEEK_PREMIUM_MODEL: "pro-test", OLLAMA_DEFAULT_MODEL: "local-test",
+    });
+    expect(subject.resolveProfile("auto").model).toBe("flash-test");
+    expect(subject.resolveProfile("deepseek-pro").model).toBe("pro-test");
+    expect(subject.resolveProfile("ollama-local")).toMatchObject({ provider: "ollama", model: "local-test" });
+  });
+
+  it("labels mock output with the actual provider and model", () => {
+    expect(createGatewayFromEnv({}).resolveProfile("deepseek-pro"))
+      .toMatchObject({ provider: "mock", model: "mock-persona" });
+  });
+
+  it("accepts the documented legacy live alias and rejects typos", () => {
+    expect(parseModelMode("live")).toBe("remote");
+    expect(() => parseModelMode("remtoe")).toThrow("MODEL_MODE");
   });
 });

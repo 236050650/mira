@@ -1,12 +1,14 @@
-import type { ProviderId } from "@mira/contracts";
+import { type ModelProfile, type ProviderId } from "@mira/contracts";
 import { MockProvider } from "./mock-provider.js";
 import type { ModelProvider } from "./types.js";
 export type ModelMode = "mock" | "local" | "remote";
+export declare function parseModelMode(value?: string): ModelMode;
 export type GatewayEnv = {
     mode: ModelMode;
     deepseekApiKey?: string;
     deepseekBaseUrl: string;
     deepseekDefaultModel: string;
+    deepseekPremiumModel?: string;
     ollamaBaseUrl: string;
     ollamaApiKey: string;
     ollamaDefaultModel: string;
@@ -14,6 +16,7 @@ export type GatewayEnv = {
     dailyRemoteTokenBudget: number;
 };
 export declare class ModelGateway {
+    private readonly env;
     private readonly providers;
     readonly mode: ModelMode;
     readonly dailyRemoteTokenBudget: number;
@@ -24,6 +27,8 @@ export declare class ModelGateway {
     /** Test/dev helper to swap a provider implementation. */
     setProvider(id: ProviderId, provider: ModelProvider): void;
     resolveProviderForMode(preferred: ProviderId): ModelProvider;
+    /** Resolve the provider and model together so mode overrides cannot split them. */
+    resolveProfile(profileId?: ModelProfile["id"]): ModelProfile;
     getRemoteTokensUsed(): number;
     addRemoteUsage(totalTokens: number): void;
     resetDailyBudget(): void;

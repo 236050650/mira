@@ -33,7 +33,13 @@ export async function createDb(config: AppConfig): Promise<DbHandle> {
     };
   }
 
-  const client = new PGlite();
+  // Persist to disk so tsx watch / API restarts keep users & refresh tokens.
+  // Tests can set PGLITE_DATA_DIR=memory for an ephemeral DB.
+  const configuredDir = process.env.PGLITE_DATA_DIR?.trim();
+  const client =
+    configuredDir === "memory"
+      ? new PGlite()
+      : new PGlite(configuredDir || resolve(here, "../../.pglite-data"));
   const db = drizzlePglite(client, { schema });
   return {
     db,

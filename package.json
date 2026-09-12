@@ -25,6 +25,8 @@
     "db:generate": "npm run db:generate -w @mira/api",
     "db:migrate": "npm run db:migrate -w @mira/api",
     "db:seed": "npm run db:seed -w @mira/api",
+    "personas:build-cultural": "tsx scripts/build-cultural-personas.ts",
+    "db:import-cultural": "tsx apps/api/src/db/import-cultural.ts",
     "db:up": "docker compose -f docker/docker-compose.yml up -d",
     "db:down": "docker compose -f docker/docker-compose.yml down"
   },

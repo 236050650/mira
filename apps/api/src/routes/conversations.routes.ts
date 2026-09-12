@@ -67,6 +67,9 @@ function mapMessage(row: typeof messages.$inferSelect) {
 }
 
 function initSse(reply: FastifyReply) {
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) reply.raw.setHeader(name, value);
+  }
   reply.raw.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -141,7 +144,8 @@ export function registerConversationRoutes(
         return sendError(reply, request, 404, ErrorCodes.PERSONA_NOT_FOUND, "角色版本不存在");
       }
 
-      const modelProfileId = (body.modelProfileId ?? "deepseek-flash") as ModelProfileId;
+      const modelProfileId = (body.modelProfileId ??
+        (deps.config.modelMode === "local" ? "ollama-local" : "deepseek-flash")) as ModelProfileId;
       const [conversation] = await deps.db
         .insert(conversations)
         .values({
@@ -277,7 +281,7 @@ export function registerConversationRoutes(
         const body = StreamMessageSchema.parse(request.body);
         initSse(reply);
         const abortController = new AbortController();
-        request.raw.on("close", () => abortController.abort());
+        reply.raw.on("close", () => abortController.abort());
 
         await deps.chat.streamMessage({
           userId: request.userId!,
@@ -321,7 +325,7 @@ export function registerConversationRoutes(
           .parse(request.body ?? {});
         initSse(reply);
         const abortController = new AbortController();
-        request.raw.on("close", () => abortController.abort());
+        reply.raw.on("close", () => abortController.abort());
 
         await deps.chat.regenerateMessage({
           userId: request.userId!,

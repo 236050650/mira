@@ -53,7 +53,7 @@ export type ApiPersona = {
     greeting: string;
     suggestedReplies: string[];
     voice: string | null;
-    relationshipPreset?: string | null;
+    relationshipPreset?: Record<string, unknown> | string | null;
   } | null;
 };
 
@@ -133,6 +133,24 @@ export class ApiError extends Error {
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<boolean> | null = null;
+let sessionExpiredNotified = false;
+
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+export function onSessionExpired(listener: SessionExpiredListener) {
+  sessionExpiredListeners.add(listener);
+  return () => {
+    sessionExpiredListeners.delete(listener);
+  };
+}
+
+function notifySessionExpired() {
+  clearSession();
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  for (const listener of sessionExpiredListeners) listener();
+}
 
 function hasStorage(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
@@ -168,6 +186,7 @@ export function clearSession(): void {
 function setSession(payload: AuthPayload): ApiUser {
   accessToken = payload.accessToken;
   persistRefreshToken(payload.refreshToken);
+  sessionExpiredNotified = false;
   return payload.user;
 }
 
@@ -236,9 +255,14 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   }
 
   if (res.status === 401 && retry) {
+    const hadSession = Boolean(accessToken || getStoredRefreshToken());
     const ok = await refresh();
     if (ok) return request<T>(path, init, false);
-    throw new ApiError("登录已过期，请重新登录", 401, "AUTH_TOKEN_EXPIRED");
+    if (hadSession) {
+      notifySessionExpired();
+      throw new ApiError("登录已过期，请重新登录", 401, "AUTH_TOKEN_EXPIRED");
+    }
+    throw new ApiError("请先登录", 401, "AUTH_UNAUTHORIZED");
   }
 
   if (!res.ok) {
@@ -288,7 +312,7 @@ export async function login(email: string, password: string): Promise<ApiUser> {
   const data = await request<AuthPayload>("/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
-  });
+  }, false);
   return setSession(data);
 }
 
@@ -343,9 +367,14 @@ export async function listPersonas(params?: {
   if (params?.category) search.set("category", params.category);
   if (params?.query) search.set("query", params.query);
   if (params?.favorite) search.set("favorite", "true");
-  const qs = search.toString();
-  const data = await request<{ items: ApiPersona[] }>(`/v1/personas${qs ? `?${qs}` : ""}`);
-  return data.items;
+  search.set("limit", "100");
+  const items: ApiPersona[] = [];
+  for (;;) {
+    search.set("offset", String(items.length));
+    const data = await request<{ items: ApiPersona[]; hasMore?: boolean }>(`/v1/personas?${search}`);
+    items.push(...data.items);
+    if (!data.hasMore || !data.items.length) return items;
+  }
 }
 
 export async function getPersona(id: string): Promise<ApiPersona> {
@@ -475,8 +504,15 @@ async function authorizedSseFetch(url: string, body?: unknown, signal?: AbortSig
   });
 
   if (res.status === 401) {
+    const hadSession = Boolean(accessToken || getStoredRefreshToken());
     const ok = await refresh();
-    if (!ok) throw new ApiError("登录已过期", 401);
+    if (!ok) {
+      if (hadSession) {
+        notifySessionExpired();
+        throw new ApiError("登录已过期，请重新登录", 401, "AUTH_TOKEN_EXPIRED");
+      }
+      throw new ApiError("请先登录", 401, "AUTH_UNAUTHORIZED");
+    }
     headers.Authorization = `Bearer ${accessToken}`;
     res = await fetch(url, {
       method: "POST",
@@ -555,4 +591,5 @@ export const miraApi = {
   restoreSession,
   logout,
   clearSession,
+  onSessionExpired,
 };

@@ -13,6 +13,7 @@ import {
   listConversations,
   listPersonas,
   login,
+  onSessionExpired,
   publishPersona,
   register,
   restoreSession,
@@ -27,6 +28,23 @@ export type RecentChat = {
   time: string;
   unread: number;
 };
+
+function relationshipLabel(
+  preset: Record<string, unknown> | string | null | undefined,
+): string {
+  if (typeof preset === "string" && preset.trim()) return preset;
+  if (!preset || typeof preset !== "object") return "新朋友";
+
+  const initialRelationship = preset["初始关系"];
+  if (typeof initialRelationship === "string" && initialRelationship.trim()) {
+    return initialRelationship;
+  }
+
+  const firstTextValue = Object.values(preset).find(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()),
+  );
+  return firstTextValue ?? "新朋友";
+}
 
 function formatChatTime(iso: string | null): string {
   if (!iso) return "";
@@ -57,7 +75,7 @@ export function apiPersonaToPersona(p: ApiPersona): Persona {
     artTone: p.artTone ?? undefined,
     online: p.online,
     conversations: p.conversations ?? "—",
-    relation: p.version?.relationshipPreset ?? "新朋友",
+    relation: relationshipLabel(p.version?.relationshipPreset),
     voice: p.version?.voice ?? "—",
     suggestedReplies: p.version?.suggestedReplies,
   };
@@ -90,6 +108,23 @@ export function useMiraApp(isApiMode: boolean) {
     setGlobalToast(message);
     window.setTimeout(() => setGlobalToast(""), 2600);
   }, []);
+
+  const showRequestError = useCallback(
+    (error: unknown, fallback: string) => {
+      if (error instanceof ApiError && error.code === "AUTH_TOKEN_EXPIRED") return;
+      showToast(error instanceof ApiError ? error.message : fallback);
+    },
+    [showToast],
+  );
+
+  useEffect(() => {
+    return onSessionExpired(() => {
+      setUser(null);
+      setConversations([]);
+      setConversationId(null);
+      showToast("登录已过期，请重新登录");
+    });
+  }, [showToast]);
 
   const loadPersonas = useCallback(async () => {
     const items = await listPersonas();
@@ -131,9 +166,7 @@ export function useMiraApp(isApiMode: boolean) {
           await refreshApiData();
         }
       } catch (error) {
-        if (!cancelled) {
-          showToast(error instanceof ApiError ? error.message : "连接服务器失败，请稍后重试");
-        }
+        if (!cancelled) showRequestError(error, "连接服务器失败，请稍后重试");
       } finally {
         if (!cancelled) setBooting(false);
       }
@@ -142,7 +175,7 @@ export function useMiraApp(isApiMode: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [isApiMode, refreshApiData, showToast]);
+  }, [isApiMode, refreshApiData, showRequestError]);
 
   const unreadTotal = useMemo(
     () => conversations.reduce((sum, item) => sum + item.unreadCount, 0),
@@ -207,13 +240,13 @@ export function useMiraApp(isApiMode: boolean) {
         const fallback = params.isSignup
           ? "注册失败，请检查邮箱与密码（至少 8 位，含字母和数字）"
           : "登录失败，请检查账号密码";
-        showToast(error instanceof ApiError ? error.message : fallback);
+        showRequestError(error, fallback);
         return "auth";
       } finally {
         setAuthLoading(false);
       }
     },
-    [isApiMode, refreshApiData, showToast],
+    [isApiMode, refreshApiData, showRequestError],
   );
 
   const completeOnboardingFlow = useCallback(
@@ -223,10 +256,10 @@ export function useMiraApp(isApiMode: boolean) {
         const nextUser = await completeOnboarding(interests, skipped);
         setUser(nextUser);
       } catch (error) {
-        showToast(error instanceof ApiError ? error.message : "保存偏好失败");
+        showRequestError(error, "保存偏好失败");
       }
     },
-    [isApiMode, showToast],
+    [isApiMode, showRequestError],
   );
 
   const toggleFavorite = useCallback(
@@ -251,10 +284,10 @@ export function useMiraApp(isApiMode: boolean) {
         setFavorites((items) =>
           next ? items.filter((item) => item !== id) : [...items, id],
         );
-        showToast(error instanceof ApiError ? error.message : "收藏操作失败");
+        showRequestError(error, "收藏操作失败");
       }
     },
-    [favorites, isApiMode, showToast],
+    [favorites, isApiMode, showRequestError],
   );
 
   const ensureConversation = useCallback(
@@ -292,11 +325,11 @@ export function useMiraApp(isApiMode: boolean) {
         await ensureConversation(persona.id, existingConversationId ?? null);
         return true;
       } catch (error) {
-        showToast(error instanceof ApiError ? error.message : "无法打开对话");
+        showRequestError(error, "无法打开对话");
         return false;
       }
     },
-    [ensureConversation, isApiMode, showToast],
+    [ensureConversation, isApiMode, showRequestError, showToast],
   );
 
   const syncThemePreference = useCallback(
@@ -369,6 +402,7 @@ export function useMiraApp(isApiMode: boolean) {
     messageChats,
     displayName,
     showToast,
+    showRequestError,
     handleAuth,
     completeOnboardingFlow,
     toggleFavorite,
