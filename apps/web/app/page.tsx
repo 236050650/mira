@@ -169,30 +169,6 @@ function ThemeToggle({
   );
 }
 
-function ApiModeToggle({
-  mode,
-  onToggle,
-  apiUrl,
-}: {
-  mode: "demo" | "api";
-  onToggle: () => void;
-  apiUrl: string;
-}) {
-  const label = mode === "api" ? "API 数据" : "演示数据";
-  const nextLabel = mode === "api" ? "演示数据" : "API 数据";
-  return (
-    <button
-      className="api-mode-toggle"
-      onClick={onToggle}
-      aria-label={`当前数据源：${label}，点击切换到${nextLabel}`}
-      title={`当前：${label} · ${apiUrl}`}
-    >
-      <Zap size={14} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function GlobalToast({ message }: { message: string }) {
   if (!message) return null;
   return (
@@ -327,8 +303,6 @@ function PersonaCard({
 function AuthView({
   onLogin,
   loading,
-  isApiMode,
-  onTryDemo,
   personaPreview,
 }: {
   onLogin: (params: {
@@ -339,8 +313,6 @@ function AuthView({
     skipAuth?: boolean;
   }) => void | Promise<void>;
   loading?: boolean;
-  isApiMode?: boolean;
-  onTryDemo?: () => void;
   personaPreview?: Persona[];
 }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -481,17 +453,15 @@ function AuthView({
           <div className="divider"><span>或</span></div>
           <Button
             className="secondary wide"
-            onClick={() => (isApiMode && onTryDemo ? onTryDemo() : void onLogin({ isSignup: false, email: "", password: "", skipAuth: true }))}
+            onClick={() => void onLogin({ isSignup: false, email: "", password: "", skipAuth: true })}
             disabled={loading}
           >
             <Sparkles size={18} />
-            直接体验 Demo
+            直接进入
           </Button>
           <p className="auth-note">
             <ShieldCheck size={15} />
-            {isApiMode
-              ? "API 模式没有预置账号；首次使用请先注册，也可直接体验 Demo"
-              : "这是交互原型，账户与对话均为本地模拟数据"}
+            聊天由云端 AI 生成，对话暂存于当前浏览器
           </p>
         </div>
       </section>
@@ -1569,19 +1539,11 @@ function MessagesView({
 function ProfileView({
   onUpgrade,
   displayName,
-  isApiMode,
-  apiUrl,
-  onToggleMode,
-  canUseApiMode,
   theme,
   onToggleTheme,
 }: {
   onUpgrade: () => void;
   displayName?: string;
-  isApiMode?: boolean;
-  apiUrl?: string;
-  onToggleMode?: () => void;
-  canUseApiMode?: boolean;
   theme: "light" | "dark";
   onToggleTheme: () => void;
 }) {
@@ -1594,16 +1556,6 @@ function ProfileView({
           <div className="profile-avatar">{name.slice(0, 1)}<span><Sparkles size={14} /></span></div>
           <div><h2>{name}</h2><p>@{name.toLowerCase().replace(/\s+/g, "")} · Lv. 8 探索者</p><div><span>12 个角色</span><span>86 次对话</span><span>24 段记忆</span></div></div>
           <Button className="secondary">编辑资料</Button>
-        </section>
-        <section className="profile-mode-card">
-          <div>
-            <span><Zap size={16} />数据源</span>
-            <h3>{isApiMode ? "API 模式" : canUseApiMode ? "Demo 模式" : "Sites 云端演示"}</h3>
-            <p>{isApiMode ? `已连接 ${apiUrl}` : canUseApiMode ? "使用本地模拟数据" : "角色数据在浏览器中运行，聊天由云端 DeepSeek 生成"}</p>
-          </div>
-          <Button className="secondary" onClick={onToggleMode} disabled={!canUseApiMode}>
-            {canUseApiMode ? `切换到 ${isApiMode ? "Demo" : "API"}` : "云端后端已启用"}
-          </Button>
         </section>
         <section className="profile-mode-card">
           <div>
@@ -1839,7 +1791,7 @@ function UpgradeModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function PersonaApp() {
-  const { mode, isApiMode, apiUrl, canUseApiMode, setMode } = useApiMode();
+  const { isApiMode } = useApiMode();
   const {
     personaList,
     favorites,
@@ -1956,21 +1908,6 @@ export default function PersonaApp() {
     return items.map(apiPersonaToPersona);
   }
 
-  function toggleApiMode() {
-    if (!canUseApiMode) {
-      showToast("Sites 云端聊天已启用，无需连接本机 API");
-      return;
-    }
-    setMode(isApiMode ? "demo" : "api");
-    if (isApiMode) {
-      showToast("已切换到演示数据，API 聊天记录仍然保留");
-      navigate("home");
-    } else {
-      showToast("已切换到 API 数据");
-      navigate("auth");
-    }
-  }
-
   let content: ReactNode;
 
   if (booting && isApiMode) {
@@ -1985,12 +1922,7 @@ export default function PersonaApp() {
       <AuthView
         onLogin={handleLogin}
         loading={authLoading}
-        isApiMode={isApiMode}
         personaPreview={personaList}
-        onTryDemo={() => {
-          setMode("demo");
-          navigate("home");
-        }}
       />
     );
   } else if (route === "onboarding") {
@@ -2043,12 +1975,6 @@ export default function PersonaApp() {
           unreadTotal={isApiMode ? unreadTotal : 3}
         />
         <main className="main-area">
-          {!isApiMode && (
-            <div className="guest-banner">
-              <span><Sparkles size={16} />云端体验中：聊天由 DeepSeek 生成，对话仅保存在当前浏览器</span>
-              {canUseApiMode && <button onClick={() => { setMode("api"); navigate("auth"); }}>注册后同步数据</button>}
-            </div>
-          )}
           {route === "home" && (
             <HomeView
               personaList={personaList}
@@ -2084,10 +2010,6 @@ export default function PersonaApp() {
             <ProfileView
               onUpgrade={() => setUpgrade(true)}
               displayName={displayName}
-              isApiMode={isApiMode}
-              apiUrl={apiUrl}
-              onToggleMode={toggleApiMode}
-              canUseApiMode={canUseApiMode}
               theme={theme}
               onToggleTheme={() => setTheme((value) => (value === "light" ? "dark" : "light"))}
             />
@@ -2102,7 +2024,6 @@ export default function PersonaApp() {
   return (
     <>
       {content}
-      <ApiModeToggle mode={mode} onToggle={toggleApiMode} apiUrl={apiUrl} />
       <ThemeToggle
         theme={theme}
         onToggle={() => setTheme((value) => (value === "light" ? "dark" : "light"))}
