@@ -55,7 +55,6 @@ import {
 import {
   personas,
   quickReplies,
-  replyBank,
   seededChats,
   type Persona,
 } from "./data";
@@ -1175,6 +1174,65 @@ function ChatView({
     }
   }
 
+  async function sendDemo(content: string) {
+    streamAbortRef.current?.abort();
+    const abort = new AbortController();
+    streamAbortRef.current = abort;
+    const userId = `user-${crypto.randomUUID()}`;
+    const assistantId = `assistant-${crypto.randomUUID()}`;
+    const history = messages.slice(-12).map((message) => ({
+      role: message.role,
+      content: message.text,
+    }));
+
+    setMessages((items) => [
+      ...items,
+      { id: userId, role: "user", text: content, time: "现在" },
+      { id: assistantId, role: "assistant", text: "", time: "现在" },
+    ]);
+    setTyping(true);
+    setActiveAssistantId(assistantId);
+
+    try {
+      const response = await fetch("/api/demo-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: abort.signal,
+        body: JSON.stringify({
+          persona: {
+            name: persona.name,
+            subtitle: persona.subtitle,
+            intro: persona.intro,
+            relation: persona.relation,
+          },
+          history,
+          message: content,
+        }),
+      });
+      const payload = (await response.json()) as { reply?: string; error?: string };
+      if (!response.ok || !payload.reply) {
+        throw new Error(payload.error || "远程模型暂时不可用，请稍后再试");
+      }
+      setMessages((items) =>
+        items.map((item) =>
+          item.id === assistantId ? { ...item, text: payload.reply ?? "" } : item,
+        ),
+      );
+    } catch (error) {
+      if (abort.signal.aborted) {
+        setMessages((items) => items.filter((item) => item.id !== assistantId));
+        showToast("已停止生成");
+      } else {
+        setMessages((items) => items.filter((item) => item.id !== assistantId));
+        onError?.(error instanceof Error ? error.message : "发送失败，请稍后重试");
+      }
+    } finally {
+      setTyping(false);
+      setActiveAssistantId(null);
+      streamAbortRef.current = null;
+    }
+  }
+
   async function handleStop() {
     if (!conversationId || !generationId) {
       streamAbortRef.current?.abort();
@@ -1277,22 +1335,8 @@ function ChatView({
       return;
     }
 
-    setMessages((items) => [
-      ...items,
-      { id: Date.now(), role: "user", text: trimmed, time: "现在" },
-    ]);
     setText("");
-    setTyping(true);
-    window.setTimeout(() => {
-      const slug = persona.slug ?? persona.id;
-      const bank = replyBank[slug] || replyBank[persona.id] || ["我在听。愿意再多告诉我一点吗？"];
-      const answer = bank[Math.floor(Math.random() * bank.length)];
-      setMessages((items) => [
-        ...items,
-        { id: Date.now() + 1, role: "assistant", text: answer, time: "现在" },
-      ]);
-      setTyping(false);
-    }, 950);
+    void sendDemo(trimmed);
   }
 
   function showToast(message: string) {
