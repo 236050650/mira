@@ -92,6 +92,7 @@ export async function POST(request: Request) {
           ...history,
           { role: "user", content: message },
         ],
+        thinking: { type: "disabled" },
         temperature: 0.82,
         max_tokens: 520,
         stream: false,
