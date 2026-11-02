@@ -3,16 +3,32 @@ import type { Embeddings } from "@langchain/core/embeddings";
 import { estimateTokens } from "@mira/domain";
 import {
   contentHash,
-  retrievePersonaContext,
   splitPersonaKnowledge,
-  type PersonaRetrieval,
-  type RetrievalChunk,
 } from "@mira/rag";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, inArray, sql, notInArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { retrievalChunks } from "../db/schema.js";
 
 type ChunkRow = typeof retrievalChunks.$inferSelect;
+
+export type RetrievalResult = {
+  knowledge: Array<{ content: string; score: number; sourceId: string }>;
+  memories: Array<{ sourceId: string; category: string; content: string; score: number }>;
+  history: Array<{ sourceId: string; content: string; score: number }>;
+};
+
+function getEmbeddingDimension(embedding: number[]): 512 | 1024 {
+  if (embedding.length <= 512) return 512;
+  return 1024;
+}
+
+function normalizeEmbedding(embedding: number[], targetDim: number): number[] {
+  if (embedding.length === targetDim) return embedding;
+  if (embedding.length > targetDim) {
+    return embedding.slice(0, targetDim);
+  }
+  return [...embedding, ...new Array(targetDim - embedding.length).fill(0)];
+}
 
 function asVector(value: unknown): number[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
@@ -26,31 +42,53 @@ function unpackMemory(packed: string): { category: string; content: string } {
   return { category: match[1], content: match[2] };
 }
 
-function toChunk(row: ChunkRow): RetrievalChunk | null {
-  const embedding = asVector(row.embedding);
-  if (!embedding) return null;
-  const memory = row.scope === "memory" ? unpackMemory(row.content) : null;
-  return {
-    scope: row.scope as RetrievalChunk["scope"],
-    personaId: row.personaId,
-    userId: row.userId,
-    conversationId: row.conversationId,
-    sourceId: row.sourceId,
-    content: memory?.content ?? row.content,
-    embedding,
-    category: memory?.category,
-    kind: row.sourceId.endsWith("#boundary") ? "boundary" : undefined,
-  };
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+type ScoredChunk = {
+  sourceId: string;
+  content: string;
+  score: number;
+  category?: string;
+};
+
 export class RetrievalIndex {
+  private personaKnowledgeCache = new Map<string, Promise<void>>();
+
   constructor(
     private readonly db: Db,
     private readonly embeddings: Embeddings,
     readonly modelId: string,
+    private readonly minScore: number = 0.3,
   ) {}
 
   async ensurePersonaKnowledge(input: {
+    personaId: string;
+    versionId: string;
+    knowledge: string;
+    knowledgeBoundary: Record<string, unknown>;
+  }): Promise<void> {
+    const cacheKey = `${input.personaId}:${input.versionId}`;
+    const cached = this.personaKnowledgeCache.get(cacheKey);
+    if (cached) return cached;
+
+    const task = this._ensurePersonaKnowledgeUncached(input);
+    this.personaKnowledgeCache.set(cacheKey, task);
+    return task;
+  }
+
+  private async _ensurePersonaKnowledgeUncached(input: {
     personaId: string;
     versionId: string;
     knowledge: string;
@@ -73,10 +111,11 @@ export class RetrievalIndex {
       );
 
     const keep = new Set(pieces.map((piece) => piece.sourceId));
-    for (const row of existing) {
-      if (!keep.has(row.sourceId)) {
-        await this.removeSource("persona", row.sourceId);
-      }
+    const toDelete = existing.filter((row) => !keep.has(row.sourceId));
+    if (toDelete.length > 0) {
+      await this.db
+        .delete(retrievalChunks)
+        .where(inArray(retrievalChunks.sourceId, toDelete.map((r) => r.sourceId)));
     }
 
     const pending = pieces.filter((piece) => {
@@ -91,18 +130,39 @@ export class RetrievalIndex {
     if (pending.length === 0) return;
 
     const vectors = await this.embeddings.embedDocuments(pending.map((piece) => piece.content));
-    for (let index = 0; index < pending.length; index += 1) {
-      const piece = pending[index];
+    
+    const values = pending.map((piece, index) => {
       const embedding = vectors[index];
-      if (!piece || !embedding) continue;
-      await this.upsert({
-        scope: "persona",
+      if (!embedding) return null;
+      return {
+        id: randomUUID(),
+        scope: "persona" as const,
         personaId: input.personaId,
         userId: null,
         conversationId: null,
         sourceId: piece.sourceId,
         content: piece.content,
         embedding,
+        embeddingVector: normalizeEmbedding(embedding, 1024),
+        embeddingModel: this.modelId,
+        contentHash: contentHash(piece.content),
+      };
+    }).filter((v): v is NonNullable<typeof v> => v !== null);
+
+    if (values.length === 0) return;
+
+    for (const value of values) {
+      await this.db.insert(retrievalChunks).values(value).onConflictDoUpdate({
+        target: [retrievalChunks.scope, retrievalChunks.sourceId],
+        set: {
+          content: value.content,
+          embedding: value.embedding,
+          embeddingVector: value.embeddingVector,
+          embeddingModel: value.embeddingModel,
+          contentHash: value.contentHash,
+          personaId: value.personaId,
+          updatedAt: new Date(),
+        },
       });
     }
   }
@@ -167,12 +227,23 @@ export class RetrievalIndex {
     conversationId: string;
     excludeSourceIds: string[];
     budgets: { knowledge: number; memories: number; history: number };
-  }): Promise<PersonaRetrieval> {
+  }): Promise<RetrievalResult> {
+    const [queryVector] = await this.embeddings.embedDocuments([input.query]);
+    if (!queryVector) {
+      return { knowledge: [], memories: [], history: [] };
+    }
+
     const [personaRows, memoryRows, messageRows] = await Promise.all([
       this.db
         .select()
         .from(retrievalChunks)
-        .where(and(eq(retrievalChunks.scope, "persona"), eq(retrievalChunks.personaId, input.personaId))),
+        .where(
+          and(
+            eq(retrievalChunks.scope, "persona"),
+            eq(retrievalChunks.personaId, input.personaId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
+          ),
+        ),
       this.db
         .select()
         .from(retrievalChunks)
@@ -181,33 +252,112 @@ export class RetrievalIndex {
             eq(retrievalChunks.scope, "memory"),
             eq(retrievalChunks.personaId, input.personaId),
             eq(retrievalChunks.userId, input.userId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
           ),
         ),
       this.db
         .select()
         .from(retrievalChunks)
         .where(
-          and(eq(retrievalChunks.scope, "message"), eq(retrievalChunks.conversationId, input.conversationId)),
+          and(
+            eq(retrievalChunks.scope, "message"),
+            eq(retrievalChunks.conversationId, input.conversationId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
+            input.excludeSourceIds.length > 0 
+              ? notInArray(retrievalChunks.sourceId, input.excludeSourceIds)
+              : undefined,
+          ),
         ),
     ]);
 
-    const chunks = [...personaRows, ...memoryRows, ...messageRows].flatMap((row) => {
-      if (row.embeddingModel !== this.modelId) return [];
-      const chunk = toChunk(row);
-      return chunk ? [chunk] : [];
-    });
+    const knowledgeScored = this.scoreAndSort(personaRows, queryVector, 8);
+    const memoryScored = this.scoreAndSort(memoryRows, queryVector, 5);
+    const historyScored = this.scoreAndSort(messageRows, queryVector, 4);
 
-    return retrievePersonaContext({
-      embeddings: this.embeddings,
-      query: input.query,
-      personaId: input.personaId,
-      userId: input.userId,
-      conversationId: input.conversationId,
-      chunks,
-      excludeSourceIds: input.excludeSourceIds,
-      budgets: input.budgets,
-      estimateTokens,
-    });
+    const boundaryRows = personaRows.filter((row) => row.sourceId.endsWith("#boundary"));
+    const boundaryItems = boundaryRows.map((row) => ({
+      content: row.content,
+      score: 1.0,
+      sourceId: row.sourceId,
+    }));
+
+    const knowledgeItems = knowledgeScored
+      .filter((item) => item.score >= this.minScore)
+      .map((item) => ({
+        content: item.content,
+        score: item.score,
+        sourceId: item.sourceId,
+      }));
+
+    const knowledge = this.takeWithinBudget(
+      [...boundaryItems, ...knowledgeItems],
+      input.budgets.knowledge,
+    );
+
+    const memories = this.takeWithinBudget(
+      memoryScored
+        .filter((item) => item.score >= this.minScore)
+        .map((item) => {
+          const memory = unpackMemory(item.content);
+          return {
+            sourceId: item.sourceId,
+            category: memory.category,
+            content: memory.content,
+            score: item.score,
+          };
+        }),
+      input.budgets.memories,
+    );
+
+    const history = this.takeWithinBudget(
+      historyScored
+        .filter((item) => item.score >= this.minScore)
+        .map((item) => ({
+          sourceId: item.sourceId,
+          content: item.content,
+          score: item.score,
+        })),
+      input.budgets.history,
+    );
+
+    return { knowledge, memories, history };
+  }
+
+  private scoreAndSort(rows: ChunkRow[], queryVector: number[], limit: number): ScoredChunk[] {
+    const scored = rows
+      .map((row) => {
+        const embedding = asVector(row.embedding);
+        if (!embedding) return null;
+        const score = cosineSimilarity(queryVector, embedding);
+        return {
+          sourceId: row.sourceId,
+          content: row.content,
+          score,
+        };
+      })
+      .filter((item): item is ScoredChunk => item !== null);
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
+  }
+
+  private takeWithinBudget<T extends { content: string }>(
+    items: T[],
+    tokenBudget: number,
+  ): T[] {
+    if (tokenBudget <= 0) return [];
+    const selected: T[] = [];
+    let used = 0;
+    for (const item of items) {
+      const cost = estimateTokens(item.content);
+      if (selected.length > 0 && used + cost > tokenBudget) break;
+      if (cost > tokenBudget) {
+        break;
+      }
+      selected.push(item);
+      used += cost;
+    }
+    return selected;
   }
 
   private async upsert(input: {
@@ -231,6 +381,7 @@ export class RetrievalIndex {
         sourceId: input.sourceId,
         content: input.content,
         embedding: input.embedding,
+        embeddingVector: normalizeEmbedding(input.embedding, 1024),
         embeddingModel: this.modelId,
         contentHash: hash,
       })
@@ -239,6 +390,7 @@ export class RetrievalIndex {
         set: {
           content: input.content,
           embedding: input.embedding,
+          embeddingVector: sql`excluded.embedding_vector`,
           embeddingModel: this.modelId,
           contentHash: hash,
           personaId: input.personaId,

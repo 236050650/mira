@@ -33,6 +33,10 @@ export type AppConfig = {
   loginRateLimit: number;
   chatRateLimit: number;
   rateLimitWindowMs: number;
+  ragMinScore: number;
+  ragKnowledgeBudget: number;
+  ragMemoriesBudget: number;
+  ragHistoryBudget: number;
 };
 
 const DEFAULT_ACCESS_SECRET = "dev-access-secret-change-me";
@@ -87,5 +91,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     loginRateLimit: Number(env.LOGIN_RATE_LIMIT_MAX || 10),
     chatRateLimit: Number(env.CHAT_RATE_LIMIT_MAX || 30),
     rateLimitWindowMs: Number(env.RATE_LIMIT_WINDOW_MS || 60_000),
+    ragMinScore: Number(env.RAG_MIN_SCORE || 0.3),
+    ragKnowledgeBudget: Number(env.RAG_KNOWLEDGE_BUDGET || 600),
+    ragMemoriesBudget: Number(env.RAG_MEMORIES_BUDGET || 300),
+    ragHistoryBudget: Number(env.RAG_HISTORY_BUDGET || 300),
   };
 }

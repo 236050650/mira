@@ -12,6 +12,7 @@ export default defineConfig({
       USE_PGLITE: "true",
       MODEL_MODE: "mock",
       LOG_LEVEL: "error",
+      RAG_MIN_SCORE: "0.1",
     },
   },
 });

@@ -84,7 +84,12 @@ export async function buildApp(options?: {
     embedModel: config.ollamaEmbedModel,
     timeoutMs: Math.min(config.modelTimeoutMs, 4000),
   });
-  const retrieval = new RetrievalIndex(handle.db, embedding.embeddings, embedding.modelId);
+  const retrieval = new RetrievalIndex(
+    handle.db,
+    embedding.embeddings,
+    embedding.modelId,
+    config.ragMinScore,
+  );
   const chat = new ChatService(handle.db, gateway, config, retrieval);
   const loginLimiter = new FixedWindowRateLimiter(config.loginRateLimit, config.rateLimitWindowMs);
   const chatLimiter = new FixedWindowRateLimiter(config.chatRateLimit, config.rateLimitWindowMs);

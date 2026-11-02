@@ -14,7 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-const vector = customType<{ data: number[]; driverData: string }>({
+const vector = customType<{ data: number[]; config: { dimensions?: number }; driverData: string }>({
   dataType(config) {
     return `vector(${config?.dimensions ?? 512})`;
   },

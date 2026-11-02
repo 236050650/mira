@@ -39,6 +39,7 @@ export type ChatStreamCallback = (
   event: SseEventName,
   data:
     | MessageAcceptedEvent
+    | MessageSourcesEvent
     | MessageDeltaEvent
     | MessageUsageEvent
     | MessageCompletedEvent
@@ -416,9 +417,9 @@ export class ChatService {
     const recentTurns = selectRecentMessages(historyTurns, budget.recentMessages);
     const personaVersion = mapPersonaVersion(version);
     let retrieved = {
-      knowledge: [] as string[],
-      memories: [] as Array<{ sourceId: string; category: string; content: string }>,
-      history: [] as Array<{ sourceId: string; content: string }>,
+      knowledge: [] as Array<{ content: string; score: number; sourceId: string }>,
+      memories: [] as Array<{ sourceId: string; category: string; content: string; score: number }>,
+      history: [] as Array<{ sourceId: string; content: string; score: number }>,
     };
     try {
       await this.retrieval.ensurePersonaKnowledge({
@@ -434,9 +435,9 @@ export class ChatService {
         conversationId: conversation.id,
         excludeSourceIds: recentTurns.map((turn) => turn.id),
         budgets: {
-          knowledge: budget.platformAndPersona,
-          memories: budget.memories,
-          history: budget.summary,
+          knowledge: this.config.ragKnowledgeBudget,
+          memories: this.config.ragMemoriesBudget,
+          history: this.config.ragHistoryBudget,
         },
       });
       if (retrieved.memories.length > 0) {
@@ -448,6 +449,32 @@ export class ChatService {
     } catch (error) {
       console.error("retrieval failed", error);
     }
+
+    const allSources = [
+      ...retrieved.knowledge.map((item) => ({
+        sourceId: item.sourceId,
+        scope: "persona" as const,
+        score: item.score,
+        snippet: item.content.slice(0, 100),
+      })),
+      ...retrieved.memories.map((item) => ({
+        sourceId: item.sourceId,
+        scope: "memory" as const,
+        score: item.score,
+        snippet: item.content.slice(0, 100),
+      })),
+      ...retrieved.history.map((item) => ({
+        sourceId: item.sourceId,
+        scope: "message" as const,
+        score: item.score,
+        snippet: item.content.slice(0, 100),
+      })),
+    ];
+
+    if (allSources.length > 0) {
+      onEvent("message.sources", { sources: allSources });
+    }
+
     const relationshipLevel =
       RELATIONSHIP_LABELS[Math.min(conversation.relationshipLevel, RELATIONSHIP_LABELS.length - 1)] ??
       "初见";
@@ -469,7 +496,7 @@ export class ChatService {
         content: memory.content,
       })),
       summary: conversation.summary ?? undefined,
-      retrievedKnowledge: retrieved.knowledge,
+      retrievedKnowledge: retrieved.knowledge.map((item) => item.content),
       retrievedHistory: retrieved.history.map((item) => item.content),
     });
 
