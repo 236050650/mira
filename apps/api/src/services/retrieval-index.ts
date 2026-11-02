@@ -17,29 +17,10 @@ export type RetrievalResult = {
   history: Array<{ sourceId: string; content: string; score: number }>;
 };
 
-function getEmbeddingDimension(embedding: number[]): 512 | 1024 {
-  if (embedding.length <= 512) return 512;
-  return 1024;
-}
-
-function normalizeEmbedding(embedding: number[], targetDim: number): number[] {
-  if (embedding.length === targetDim) return embedding;
-  if (embedding.length > targetDim) {
-    return embedding.slice(0, targetDim);
-  }
-  return [...embedding, ...new Array(targetDim - embedding.length).fill(0)];
-}
-
 function asVector(value: unknown): number[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   if (!value.every((item) => typeof item === "number")) return null;
   return value;
-}
-
-function unpackMemory(packed: string): { category: string; content: string } {
-  const match = packed.match(/^\[([^\]]+)\] ([\s\S]*)$/);
-  if (!match?.[1] || match[2] === undefined) return { category: "memory", content: packed };
-  return { category: match[1], content: match[2] };
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -62,6 +43,12 @@ type ScoredChunk = {
   score: number;
   category?: string;
 };
+
+function unpackMemory(packed: string): { category: string; content: string } {
+  const match = packed.match(/^\[([^\]]+)\] ([\s\S]*)$/);
+  if (!match?.[1] || match[2] === undefined) return { category: "memory", content: packed };
+  return { category: match[1], content: match[2] };
+}
 
 export class RetrievalIndex {
   private personaKnowledgeCache = new Map<string, Promise<void>>();
@@ -143,7 +130,7 @@ export class RetrievalIndex {
         sourceId: piece.sourceId,
         content: piece.content,
         embedding,
-        embeddingVector: normalizeEmbedding(embedding, 1024),
+        embeddingVector: embedding,
         embeddingModel: this.modelId,
         contentHash: contentHash(piece.content),
       };
@@ -152,12 +139,15 @@ export class RetrievalIndex {
     if (values.length === 0) return;
 
     for (const value of values) {
-      await this.db.insert(retrievalChunks).values(value).onConflictDoUpdate({
+      await this.db.insert(retrievalChunks).values({
+        ...value,
+        embeddingVector: JSON.stringify(value.embedding),
+      }).onConflictDoUpdate({
         target: [retrievalChunks.scope, retrievalChunks.sourceId],
         set: {
           content: value.content,
           embedding: value.embedding,
-          embeddingVector: value.embeddingVector,
+          embeddingVector: JSON.stringify(value.embedding),
           embeddingModel: value.embeddingModel,
           contentHash: value.contentHash,
           personaId: value.personaId,
@@ -263,7 +253,7 @@ export class RetrievalIndex {
             eq(retrievalChunks.scope, "message"),
             eq(retrievalChunks.conversationId, input.conversationId),
             eq(retrievalChunks.embeddingModel, this.modelId),
-            input.excludeSourceIds.length > 0 
+            input.excludeSourceIds.length > 0
               ? notInArray(retrievalChunks.sourceId, input.excludeSourceIds)
               : undefined,
           ),
@@ -381,7 +371,7 @@ export class RetrievalIndex {
         sourceId: input.sourceId,
         content: input.content,
         embedding: input.embedding,
-        embeddingVector: normalizeEmbedding(input.embedding, 1024),
+        embeddingVector: JSON.stringify(input.embedding),
         embeddingModel: this.modelId,
         contentHash: hash,
       })
@@ -390,7 +380,7 @@ export class RetrievalIndex {
         set: {
           content: input.content,
           embedding: input.embedding,
-          embeddingVector: sql`excluded.embedding_vector`,
+          embeddingVector: JSON.stringify(input.embedding),
           embeddingModel: this.modelId,
           contentHash: hash,
           personaId: input.personaId,
