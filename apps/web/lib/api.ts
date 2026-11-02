@@ -3,6 +3,7 @@ import type {
   MessageCompletedEvent,
   MessageDeltaEvent,
   MessageFailedEvent,
+  MessageSourcesEvent,
   SseEventName,
 } from "@mira/contracts";
 
@@ -109,6 +110,7 @@ export type ModelsStatus = {
 
 export type StreamHandlers = {
   onAccepted?: (data: MessageAcceptedEvent) => void;
+  onSources?: (data: MessageSourcesEvent) => void;
   onDelta?: (data: MessageDeltaEvent) => void;
   onCompleted?: (data: MessageCompletedEvent) => void;
   onFailed?: (data: MessageFailedEvent) => void;
@@ -442,6 +444,9 @@ function dispatchSse(event: SseEventName, data: unknown, handlers: StreamHandler
   switch (event) {
     case "message.accepted":
       handlers.onAccepted?.(data as MessageAcceptedEvent);
+      break;
+    case "message.sources":
+      handlers.onSources?.(data as MessageSourcesEvent);
       break;
     case "message.delta":
       handlers.onDelta?.(data as MessageDeltaEvent);

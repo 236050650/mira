@@ -1,0 +1,81 @@
+/* Add to styles or inline for MessageSources component */
+.message-sources {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.message-sources summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #666;
+  padding: 6px 0;
+  list-style: none;
+}
+
+.message-sources summary::-webkit-details-marker {
+  display: none;
+}
+
+.message-sources summary:hover {
+  color: #333;
+}
+
+.sources-list {
+  margin-top: 8px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: white;
+  border-radius: 6px;
+}
+
+.source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.source-scope {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.source-scope[data-scope="persona"] {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.source-scope[data-scope="memory"] {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.source-scope[data-scope="message"] {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.source-score {
+  color: #999;
+  font-size: 11px;
+}
+
+.source-snippet {
+  color: #555;
+  font-size: 13px;
+  line-height: 1.4;
+}
