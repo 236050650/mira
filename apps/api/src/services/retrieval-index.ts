@@ -232,6 +232,138 @@ export class RetrievalIndex {
       return { knowledge: [], memories: [], history: [] };
     }
 
+    const vecCol = getVectorColumnForDimension(queryVector.length);
+    const vectorLiteral = `[${queryVector.join(",")}]`;
+
+    try {
+      const knowledgeQuery = this.db
+        .select({
+          sourceId: retrievalChunks.sourceId,
+          content: retrievalChunks.content,
+          distance: sql<number>`1 - (${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector)`,
+        })
+        .from(retrievalChunks)
+        .where(
+          and(
+            eq(retrievalChunks.scope, "persona"),
+            eq(retrievalChunks.personaId, input.personaId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
+            sql`${sql.identifier(vecCol)} IS NOT NULL`,
+          ),
+        )
+        .orderBy(sql`${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector`)
+        .limit(8);
+
+      const memoryQuery = this.db
+        .select({
+          sourceId: retrievalChunks.sourceId,
+          content: retrievalChunks.content,
+          distance: sql<number>`1 - (${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector)`,
+        })
+        .from(retrievalChunks)
+        .where(
+          and(
+            eq(retrievalChunks.scope, "memory"),
+            eq(retrievalChunks.personaId, input.personaId),
+            eq(retrievalChunks.userId, input.userId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
+            sql`${sql.identifier(vecCol)} IS NOT NULL`,
+          ),
+        )
+        .orderBy(sql`${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector`)
+        .limit(5);
+
+      const historyQuery = this.db
+        .select({
+          sourceId: retrievalChunks.sourceId,
+          content: retrievalChunks.content,
+          distance: sql<number>`1 - (${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector)`,
+        })
+        .from(retrievalChunks)
+        .where(
+          and(
+            eq(retrievalChunks.scope, "message"),
+            eq(retrievalChunks.conversationId, input.conversationId),
+            eq(retrievalChunks.embeddingModel, this.modelId),
+            sql`${sql.identifier(vecCol)} IS NOT NULL`,
+            input.excludeSourceIds.length > 0
+              ? notInArray(retrievalChunks.sourceId, input.excludeSourceIds)
+              : undefined,
+          ),
+        )
+        .orderBy(sql`${sql.identifier(vecCol)} <=> ${vectorLiteral}::vector`)
+        .limit(4);
+
+      const [knowledgeRows, memoryRows, historyRows] = await Promise.all([
+        knowledgeQuery,
+        memoryQuery,
+        historyQuery,
+      ]);
+
+      const boundaryRows = knowledgeRows.filter((row) => row.sourceId.endsWith("#boundary"));
+      const boundaryItems = boundaryRows.map((row) => ({
+        content: row.content,
+        score: 1.0,
+        sourceId: row.sourceId,
+      }));
+
+      const knowledgeItems = knowledgeRows
+        .filter((row) => !row.sourceId.endsWith("#boundary") && row.distance >= this.minScore)
+        .map((row) => ({
+          content: row.content,
+          score: row.distance,
+          sourceId: row.sourceId,
+        }));
+
+      const knowledge = this.takeWithinBudget(
+        [...boundaryItems, ...knowledgeItems],
+        input.budgets.knowledge,
+      );
+
+      const memories = this.takeWithinBudget(
+        memoryRows
+          .filter((row) => row.distance >= this.minScore)
+          .map((row) => {
+            const memory = unpackMemory(row.content);
+            return {
+              sourceId: row.sourceId,
+              category: memory.category,
+              content: memory.content,
+              score: row.distance,
+            };
+          }),
+        input.budgets.memories,
+      );
+
+      const history = this.takeWithinBudget(
+        historyRows
+          .filter((row) => row.distance >= this.minScore)
+          .map((row) => ({
+            sourceId: row.sourceId,
+            content: row.content,
+            score: row.distance,
+          })),
+        input.budgets.history,
+      );
+
+      return { knowledge, memories, history };
+    } catch (error) {
+      console.warn("[Retrieval] SQL vector search failed, falling back to in-memory:", error);
+      return this.retrieveInMemory(input, queryVector);
+    }
+  }
+
+  private async retrieveInMemory(
+    input: {
+      query: string;
+      personaId: string;
+      userId: string;
+      conversationId: string;
+      excludeSourceIds: string[];
+      budgets: { knowledge: number; memories: number; history: number };
+    },
+    queryVector: number[],
+  ): Promise<RetrievalResult> {
     const [personaRows, memoryRows, messageRows] = await Promise.all([
       this.db
         .select()
