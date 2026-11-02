@@ -141,13 +141,13 @@ export class RetrievalIndex {
     for (const value of values) {
       await this.db.insert(retrievalChunks).values({
         ...value,
-        embeddingVector: JSON.stringify(value.embedding),
+        embeddingVector: value.embedding,
       }).onConflictDoUpdate({
         target: [retrievalChunks.scope, retrievalChunks.sourceId],
         set: {
           content: value.content,
           embedding: value.embedding,
-          embeddingVector: JSON.stringify(value.embedding),
+          embeddingVector: value.embedding,
           embeddingModel: value.embeddingModel,
           contentHash: value.contentHash,
           personaId: value.personaId,
@@ -371,7 +371,7 @@ export class RetrievalIndex {
         sourceId: input.sourceId,
         content: input.content,
         embedding: input.embedding,
-        embeddingVector: JSON.stringify(input.embedding),
+        embeddingVector: input.embedding,
         embeddingModel: this.modelId,
         contentHash: hash,
       })
@@ -380,7 +380,7 @@ export class RetrievalIndex {
         set: {
           content: input.content,
           embedding: input.embedding,
-          embeddingVector: JSON.stringify(input.embedding),
+          embeddingVector: input.embedding,
           embeddingModel: this.modelId,
           contentHash: hash,
           personaId: input.personaId,
