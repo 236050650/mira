@@ -50,6 +50,14 @@ function unpackMemory(packed: string): { category: string; content: string } {
   return { category: match[1], content: match[2] };
 }
 
+function getVectorColumnForDimension(dim: number): 'embeddingVector512' | 'embeddingVector1024' {
+  return dim <= 512 ? 'embeddingVector512' : 'embeddingVector1024';
+}
+
+function getVectorColumn(embedding: number[]) {
+  return getVectorColumnForDimension(embedding.length);
+}
+
 export class RetrievalIndex {
   private personaKnowledgeCache = new Map<string, Promise<void>>();
 
@@ -121,6 +129,7 @@ export class RetrievalIndex {
     const values = pending.map((piece, index) => {
       const embedding = vectors[index];
       if (!embedding) return null;
+      const vecCol = getVectorColumn(embedding);
       return {
         id: randomUUID(),
         scope: "persona" as const,
@@ -130,7 +139,7 @@ export class RetrievalIndex {
         sourceId: piece.sourceId,
         content: piece.content,
         embedding,
-        embeddingVector: embedding,
+        [vecCol]: embedding,
         embeddingModel: this.modelId,
         contentHash: contentHash(piece.content),
       };
@@ -139,15 +148,15 @@ export class RetrievalIndex {
     if (values.length === 0) return;
 
     for (const value of values) {
+      const vecCol = getVectorColumn(value.embedding);
       await this.db.insert(retrievalChunks).values({
         ...value,
-        embeddingVector: value.embedding,
       }).onConflictDoUpdate({
         target: [retrievalChunks.scope, retrievalChunks.sourceId],
         set: {
           content: value.content,
           embedding: value.embedding,
-          embeddingVector: value.embedding,
+          [vecCol]: value.embedding,
           embeddingModel: value.embeddingModel,
           contentHash: value.contentHash,
           personaId: value.personaId,
@@ -360,6 +369,7 @@ export class RetrievalIndex {
     embedding: number[];
   }): Promise<void> {
     const hash = contentHash(input.content);
+    const vecCol = getVectorColumn(input.embedding);
     await this.db
       .insert(retrievalChunks)
       .values({
@@ -371,7 +381,7 @@ export class RetrievalIndex {
         sourceId: input.sourceId,
         content: input.content,
         embedding: input.embedding,
-        embeddingVector: input.embedding,
+        [vecCol]: input.embedding,
         embeddingModel: this.modelId,
         contentHash: hash,
       })
@@ -380,7 +390,7 @@ export class RetrievalIndex {
         set: {
           content: input.content,
           embedding: input.embedding,
-          embeddingVector: input.embedding,
+          [vecCol]: input.embedding,
           embeddingModel: this.modelId,
           contentHash: hash,
           personaId: input.personaId,
