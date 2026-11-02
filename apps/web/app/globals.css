@@ -2987,6 +2987,9 @@ html:not([data-theme="dark"]) .upgrade-modal {
   }
 
   .auth-panel {
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: flex-start;
     min-height: 100vh;
     padding: 30px 22px;
   }

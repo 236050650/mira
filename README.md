@@ -6,11 +6,12 @@
 
 ## 界面
 
-| 登录 | 首页 |
-| --- | --- |
-| ![登录](./docs/screenshots/auth.jpg) | ![首页](./docs/screenshots/home.jpg) |
-| 角色 | 对话 |
-| ![霍去病](./docs/screenshots/detail.jpg) | ![与霍去病对谈](./docs/screenshots/chat.jpg) |
+<p>
+  <img src="./docs/screenshots/auth.jpg" alt="登录" width="180" />
+  <img src="./docs/screenshots/home.jpg" alt="首页" width="180" />
+  <img src="./docs/screenshots/detail.jpg" alt="角色" width="180" />
+  <img src="./docs/screenshots/chat.jpg" alt="对话" width="180" />
+</p>
 
 ## 检索与生成
 
