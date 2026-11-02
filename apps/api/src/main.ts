@@ -146,7 +146,16 @@ export async function buildApp(options?: {
     requireChatRateLimit,
   });
   registerMemoryRoutes(app, { db: handle.db, requireAuth, retrieval });
-  registerModelRoutes(app, { db: handle.db, gateway, config, requireAuth });
+  registerModelRoutes(app, { 
+    db: handle.db, 
+    gateway, 
+    config, 
+    requireAuth,
+    checkEmbeddingHealth: async () => {
+      const { checkEmbeddingHealth } = await import("@mira/rag");
+      return checkEmbeddingHealth(config.ollama.baseUrl);
+    },
+  });
 
   app.addHook("onClose", async () => {
     await handle.close();

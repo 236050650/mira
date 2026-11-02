@@ -1,5 +1,6 @@
 import type { Embeddings } from "@langchain/core/embeddings";
 import { MemoryVectorStore } from "@langchain/classic/vectorstores/memory";
+import { estimateTokens } from "@mira/domain";
 
 export type RetrievalScope = "persona" | "memory" | "message";
 
@@ -38,16 +39,9 @@ export type PersonaRetrieval = {
   history: RetrievedSnippet[];
 };
 
-function defaultEstimate(text: string): number {
-  const cjk = text.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
-  const rest = text.length - cjk;
-  return Math.max(1, Math.ceil(cjk * 1.2 + rest / 4));
-}
-
 export function takeWithinBudget(
   items: string[],
   tokenBudget: number,
-  estimateTokens: (text: string) => number = defaultEstimate,
 ): string[] {
   if (tokenBudget <= 0) return [];
   const selected: string[] = [];
@@ -156,7 +150,7 @@ export async function retrievePersonaContext(input: {
   budgets: RetrievalBudgets;
   estimateTokens?: (text: string) => number;
 }): Promise<PersonaRetrieval> {
-  const estimate = input.estimateTokens ?? defaultEstimate;
+  const estimate = input.estimateTokens ?? estimateTokens;
   const excluded = new Set(input.excludeSourceIds ?? []);
   const knowledgeChunks = input.chunks.filter(
     (chunk) => chunk.scope === "persona" && chunk.personaId === input.personaId,

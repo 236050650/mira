@@ -93,8 +93,32 @@ export async function resolveEmbeddings(options: {
       baseUrl: ollamaNativeBaseUrl(options.ollamaBaseUrl),
     });
     await withTimeout(embeddings.embedQuery("ping"), options.timeoutMs ?? 4000);
+    console.log(`[Embeddings] Using Ollama model: ${modelId}`);
     return { embeddings, modelId };
-  } catch {
+  } catch (error) {
+    console.warn(`[Embeddings] Ollama unavailable, falling back to hash: ${error}`);
     return { embeddings: new HashEmbeddings(), modelId: HASH_EMBEDDING_MODEL };
+  }
+}
+
+export async function checkEmbeddingHealth(ollamaBaseUrl: string): Promise<{ 
+  available: boolean; 
+  model: string | null 
+}> {
+  try {
+    const response = await fetch(`${ollamaNativeBaseUrl(ollamaBaseUrl)}/api/tags`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) {
+      return { available: false, model: null };
+    }
+    const data = await response.json() as { models?: Array<{ name: string }> };
+    const hasBgeM3 = data.models?.some((m) => m.name.includes("bge-m3")) ?? false;
+    return { 
+      available: true, 
+      model: hasBgeM3 ? DEFAULT_OLLAMA_EMBED_MODEL : data.models?.[0]?.name ?? null 
+    };
+  } catch {
+    return { available: false, model: null };
   }
 }

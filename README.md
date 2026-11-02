@@ -15,6 +15,14 @@
   <img src="./docs/screenshots/chat.jpg" alt="对话" width="180" />
 </p>
 
+## RAG 检索评估
+
+| Embedding Model | Total Queries | Hit@3 | Hit Rate | MRR |
+|-----------------|---------------|-------|----------|-----|
+| Hash (512-d)    | 20 | 20 | 100.0% | 1.000 |
+
+评估集包含 20 个问题,覆盖霍去病、孔子、王阳明、皮卡丘、爱因斯坦、李白等6个人格,测试知识检索和边界标记识别。完整报告见 [reports/rag-eval.md](./reports/rag-eval.md)。
+
 ## 检索与生成
 
 一轮对话分成两段：
