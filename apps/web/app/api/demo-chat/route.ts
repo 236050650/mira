@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-
 type DemoChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -25,8 +23,21 @@ type RuntimeEnv = {
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_HISTORY_ITEMS = 12;
 
+async function getRuntimeEnv(): Promise<RuntimeEnv> {
+  try {
+    const { env } = await import("cloudflare:workers");
+    return env as unknown as RuntimeEnv;
+  } catch {
+    return {
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+      DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL,
+      DEEPSEEK_DEFAULT_MODEL: process.env.DEEPSEEK_DEFAULT_MODEL,
+    };
+  }
+}
+
 export async function POST(request: Request) {
-  const runtime = env as unknown as RuntimeEnv;
+  const runtime = await getRuntimeEnv();
   if (!runtime.DEEPSEEK_API_KEY) {
     return Response.json(
       { error: "线上模型尚未配置，请稍后再试。" },

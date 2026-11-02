@@ -32,7 +32,7 @@ test("server-renders the MIRA persona demo", async () => {
   assert.match(html, /<title>MIRA 镜语 — 历史与动漫人格模拟器<\/title>/i);
   assert.match(html, /WELCOME TO MIRA/);
   assert.match(html, /欢迎回来/);
-  assert.match(html, /直接体验 Demo/);
+  assert.match(html, /直接进入/);
   assert.match(html, /切换到深色模式/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
