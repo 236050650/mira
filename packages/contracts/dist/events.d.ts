@@ -1,8 +1,16 @@
-export type SseEventName = "message.accepted" | "message.delta" | "message.usage" | "message.completed" | "message.failed";
+export type SseEventName = "message.accepted" | "message.sources" | "message.delta" | "message.usage" | "message.completed" | "message.failed";
 export type MessageAcceptedEvent = {
     userMessageId: string;
     assistantMessageId: string;
     generationId: string;
+};
+export type MessageSourcesEvent = {
+    sources: Array<{
+        sourceId: string;
+        scope: "persona" | "memory" | "message";
+        score: number;
+        snippet: string;
+    }>;
 };
 export type MessageDeltaEvent = {
     assistantMessageId: string;

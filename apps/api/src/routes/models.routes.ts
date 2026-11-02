@@ -15,6 +15,7 @@ export function registerModelRoutes(
     gateway: ModelGateway;
     config: AppConfig;
     requireAuth: (req: any, reply: any) => Promise<void>;
+    checkEmbeddingHealth: () => Promise<{ available: boolean; model: string | null }>;
   },
 ) {
   app.get("/v1/models/status", { preHandler: deps.requireAuth }, async (request, reply) => {
@@ -44,6 +45,7 @@ export function registerModelRoutes(
         remoteTokensUsed: deps.gateway.getRemoteTokensUsed(),
         remoteTokenBudget: deps.gateway.dailyRemoteTokenBudget,
         profiles,
+        embeddings: await deps.checkEmbeddingHealth(),
       });
     } catch (error) {
       return handleRouteError(error, request, reply);

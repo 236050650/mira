@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-
 type DemoChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -25,8 +23,86 @@ type RuntimeEnv = {
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_HISTORY_ITEMS = 12;
 
+const RATE_LIMIT_PER_IP = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DAILY_GLOBAL_LIMIT = 1000;
+const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const ipRequests = new Map<string, { count: number; resetAt: number }>();
+let globalDailyCount = 0;
+let globalDailyResetAt = Date.now() + DAILY_WINDOW_MS;
+
+function getClientIP(request: Request): string {
+  const cfConnectingIP = request.headers.get("cf-connecting-ip");
+  const xForwardedFor = request.headers.get("x-forwarded-for");
+  const xRealIP = request.headers.get("x-real-ip");
+  
+  if (cfConnectingIP) return cfConnectingIP;
+  if (xForwardedFor) return xForwardedFor.split(",")[0]?.trim() || "unknown";
+  if (xRealIP) return xRealIP;
+  return "unknown";
+}
+
+function checkRateLimit(ip: string): { allowed: boolean; reason?: string } {
+  const now = Date.now();
+  
+  if (now >= globalDailyResetAt) {
+    globalDailyCount = 0;
+    globalDailyResetAt = now + DAILY_WINDOW_MS;
+  }
+  
+  if (globalDailyCount >= DAILY_GLOBAL_LIMIT) {
+    return { 
+      allowed: false, 
+      reason: "今日 Demo 额度已用尽，请明日再试。生产环境需配置独立密钥。" 
+    };
+  }
+  
+  const record = ipRequests.get(ip);
+  if (record) {
+    if (now >= record.resetAt) {
+      ipRequests.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    } else if (record.count >= RATE_LIMIT_PER_IP) {
+      return { 
+        allowed: false, 
+        reason: "请求过于频繁，请稍后再试。" 
+      };
+    } else {
+      record.count++;
+    }
+  } else {
+    ipRequests.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+  }
+  
+  globalDailyCount++;
+  return { allowed: true };
+}
+
+async function getRuntimeEnv(): Promise<RuntimeEnv> {
+  try {
+    const { env } = await import("cloudflare:workers");
+    return env as unknown as RuntimeEnv;
+  } catch {
+    return {
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+      DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL,
+      DEEPSEEK_DEFAULT_MODEL: process.env.DEEPSEEK_DEFAULT_MODEL,
+    };
+  }
+}
+
 export async function POST(request: Request) {
-  const runtime = env as unknown as RuntimeEnv;
+  const clientIP = getClientIP(request);
+  const rateLimitResult = checkRateLimit(clientIP);
+  
+  if (!rateLimitResult.allowed) {
+    return Response.json(
+      { error: rateLimitResult.reason },
+      { status: 429 },
+    );
+  }
+
+  const runtime = await getRuntimeEnv();
   if (!runtime.DEEPSEEK_API_KEY) {
     return Response.json(
       { error: "线上模型尚未配置，请稍后再试。" },

@@ -4,6 +4,64 @@ import { retrievePersonaContext } from "./retrieve.js";
 import { splitPersonaKnowledge } from "./split.js";
 
 describe("persona retrieval", () => {
+  it("embeds the query only once for all three scopes", async () => {
+    let embedQueryCallCount = 0;
+    const baseEmbeddings = new HashEmbeddings();
+    const countingEmbeddings = {
+      embedQuery: async (text: string) => {
+        embedQueryCallCount++;
+        return baseEmbeddings.embedQuery(text);
+      },
+      embedDocuments: async (texts: string[]) => {
+        return baseEmbeddings.embedDocuments(texts);
+      },
+    };
+
+    const [knowledgeVector, memoryVector, historyVector] = await baseEmbeddings.embedDocuments([
+      "知识内容",
+      "记忆内容",
+      "历史对话",
+    ]);
+
+    await retrievePersonaContext({
+      embeddings: countingEmbeddings,
+      query: "测试查询",
+      personaId: "persona-1",
+      userId: "user-1",
+      conversationId: "conv-1",
+      budgets: { knowledge: 50, memories: 50, history: 50 },
+      chunks: [
+        {
+          scope: "persona",
+          personaId: "persona-1",
+          sourceId: "k1",
+          content: "知识内容",
+          embedding: knowledgeVector ?? [],
+          kind: "knowledge",
+        },
+        {
+          scope: "memory",
+          personaId: "persona-1",
+          userId: "user-1",
+          sourceId: "m1",
+          content: "记忆内容",
+          embedding: memoryVector ?? [],
+          category: "preference",
+        },
+        {
+          scope: "message",
+          personaId: "persona-1",
+          conversationId: "conv-1",
+          sourceId: "h1",
+          content: "历史对话",
+          embedding: historyVector ?? [],
+        },
+      ],
+    });
+
+    expect(embedQueryCallCount).toBe(1);
+  });
+
   it("returns the matching knowledge chunk and hides other personas", async () => {
     const embeddings = new HashEmbeddings();
     const cavalry = "霍去病率领骑兵奔袭河西，以快打慢，不问宅第。";

@@ -71,13 +71,6 @@ export function composePersonaPrompt(input) {
     if (personaVersion.examples.length > 0) {
         sections.push(`\n对话示例：\n${formatExamples(personaVersion.examples)}`);
     }
-    sections.push("\n[知识边界]");
-    if (Object.keys(personaVersion.knowledgeBoundary).length > 0) {
-        sections.push(formatRecord(personaVersion.knowledgeBoundary));
-    }
-    else {
-        sections.push("（未单独设定知识边界）");
-    }
     sections.push("\n[检索到的角色知识]");
     if (retrievedKnowledge && retrievedKnowledge.length > 0) {
         sections.push(retrievedKnowledge.map((item) => `- ${item}`).join("\n"));

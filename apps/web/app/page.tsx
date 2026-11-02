@@ -75,6 +75,7 @@ import {
   streamMessage,
   type ApiMessage,
 } from "../lib/api";
+import { MessageSources } from "../components/MessageSources";
 
 type Route =
   | "auth"
@@ -92,6 +93,12 @@ type ChatMessage = {
   role: "assistant" | "user";
   text: string;
   time: string;
+  sources?: Array<{
+    sourceId: string;
+    scope: string;
+    score: number;
+    snippet: string;
+  }>;
 };
 
 function personaQuickReplies(persona: Persona): string[] {
@@ -1093,6 +1100,15 @@ function ChatView({
               ),
             );
           },
+          onSources: (data) => {
+            setMessages((items) =>
+              items.map((message) =>
+                message.id === assistantIdRef.current || message.id === localAssistantId
+                  ? { ...message, sources: data.sources }
+                  : message,
+              ),
+            );
+          },
           onDelta: (data) => {
             setMessages((items) =>
               items.map((message) =>
@@ -1354,7 +1370,12 @@ function ChatView({
                   {isActiveAssistant && !message.text ? (
                     <div className="typing-bubble"><span /><span /><span /></div>
                   ) : (
-                    <div className="message-bubble">{message.text}</div>
+                    <>
+                      <div className="message-bubble">{message.text}</div>
+                      {message.sources && message.sources.length > 0 && (
+                        <MessageSources sources={message.sources} />
+                      )}
+                    </>
                   )}
                   {isActiveAssistant ? (
                     <div className="generation-meta">

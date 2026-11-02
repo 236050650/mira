@@ -1,5 +1,6 @@
 export type SseEventName =
   | "message.accepted"
+  | "message.sources"
   | "message.delta"
   | "message.usage"
   | "message.completed"
@@ -9,6 +10,15 @@ export type MessageAcceptedEvent = {
   userMessageId: string;
   assistantMessageId: string;
   generationId: string;
+};
+
+export type MessageSourcesEvent = {
+  sources: Array<{
+    sourceId: string;
+    scope: "persona" | "memory" | "message";
+    score: number;
+    snippet: string;
+  }>;
 };
 
 export type MessageDeltaEvent = {

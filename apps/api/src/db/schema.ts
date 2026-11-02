@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -12,6 +13,21 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+const vector = customType<{ data: number[]; config: { dimensions?: number }; driverData: string }>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 512})`;
+  },
+  toDriver(value: number[]): string {
+    return JSON.stringify(value);
+  },
+  fromDriver(value: string): number[] {
+    if (typeof value === "string") {
+      return JSON.parse(value);
+    }
+    return value as unknown as number[];
+  },
+});
 
 const id = () => uuid("id").primaryKey().$defaultFn(() => randomUUID());
 
@@ -211,6 +227,8 @@ export const retrievalChunks = pgTable("retrieval_chunks", {
   sourceId: text("source_id").notNull(),
   content: text("content").notNull(),
   embedding: jsonb("embedding").$type<number[]>().notNull(),
+  embeddingVector512: vector("embedding_vector_512", { dimensions: 512 }),
+  embeddingVector1024: vector("embedding_vector_1024", { dimensions: 1024 }),
   embeddingModel: text("embedding_model").notNull(),
   contentHash: text("content_hash").notNull(),
   ...timestamps,

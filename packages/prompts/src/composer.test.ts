@@ -18,7 +18,6 @@ describe("composePersonaPrompt", () => {
     expect(prompt).toContain("[平台规则]");
     expect(prompt).toContain("[角色身份]");
     expect(prompt).toContain("[表达方式]");
-    expect(prompt).toContain("[知识边界]");
     expect(prompt).toContain("[当前关系]");
     expect(prompt).toContain("[长期记忆]");
     expect(prompt).toContain("[会话摘要]");

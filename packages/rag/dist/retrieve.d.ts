@@ -30,7 +30,7 @@ export type PersonaRetrieval = {
     memories: RetrievedMemory[];
     history: RetrievedSnippet[];
 };
-export declare function takeWithinBudget(items: string[], tokenBudget: number, estimateTokens?: (text: string) => number): string[];
+export declare function takeWithinBudget(items: string[], tokenBudget: number): string[];
 export declare function retrievePersonaContext(input: {
     embeddings: Embeddings;
     query: string;

@@ -1,5 +1,6 @@
 import type { Embeddings } from "@langchain/core/embeddings";
 import { MemoryVectorStore } from "@langchain/classic/vectorstores/memory";
+import { estimateTokens } from "@mira/domain";
 
 export type RetrievalScope = "persona" | "memory" | "message";
 
@@ -38,16 +39,9 @@ export type PersonaRetrieval = {
   history: RetrievedSnippet[];
 };
 
-function defaultEstimate(text: string): number {
-  const cjk = text.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
-  const rest = text.length - cjk;
-  return Math.max(1, Math.ceil(cjk * 1.2 + rest / 4));
-}
-
 export function takeWithinBudget(
   items: string[],
   tokenBudget: number,
-  estimateTokens: (text: string) => number = defaultEstimate,
 ): string[] {
   if (tokenBudget <= 0) return [];
   const selected: string[] = [];
@@ -84,6 +78,30 @@ async function rankChunks(
   const found = await store.similaritySearch(query, Math.min(k, chunks.length));
   const byId = new Map(chunks.map((chunk) => [chunk.sourceId, chunk]));
   return found.flatMap((doc) => {
+    const sourceId = String(doc.metadata.sourceId ?? "");
+    const chunk = byId.get(sourceId);
+    return chunk ? [chunk] : [];
+  });
+}
+
+async function rankChunksWithVector(
+  embeddings: Embeddings,
+  chunks: RetrievalChunk[],
+  queryVector: number[],
+  k: number,
+): Promise<RetrievalChunk[]> {
+  if (chunks.length === 0 || k <= 0) return [];
+  const store = new MemoryVectorStore(embeddings);
+  await store.addVectors(
+    chunks.map((chunk) => chunk.embedding),
+    chunks.map((chunk) => ({
+      pageContent: chunk.content,
+      metadata: { sourceId: chunk.sourceId },
+    })),
+  );
+  const found = await store.similaritySearchVectorWithScore(queryVector, Math.min(k, chunks.length));
+  const byId = new Map(chunks.map((chunk) => [chunk.sourceId, chunk]));
+  return found.flatMap(([doc]) => {
     const sourceId = String(doc.metadata.sourceId ?? "");
     const chunk = byId.get(sourceId);
     return chunk ? [chunk] : [];
@@ -132,7 +150,7 @@ export async function retrievePersonaContext(input: {
   budgets: RetrievalBudgets;
   estimateTokens?: (text: string) => number;
 }): Promise<PersonaRetrieval> {
-  const estimate = input.estimateTokens ?? defaultEstimate;
+  const estimate = input.estimateTokens ?? estimateTokens;
   const excluded = new Set(input.excludeSourceIds ?? []);
   const knowledgeChunks = input.chunks.filter(
     (chunk) => chunk.scope === "persona" && chunk.personaId === input.personaId,
@@ -150,10 +168,12 @@ export async function retrievePersonaContext(input: {
       !excluded.has(chunk.sourceId),
   );
 
+  const queryVector = await input.embeddings.embedQuery(input.query);
+
   const [rankedKnowledge, rankedMemories, rankedHistory] = await Promise.all([
-    rankChunks(input.embeddings, knowledgeChunks, input.query, 8),
-    rankChunks(input.embeddings, memoryChunks, input.query, 5),
-    rankChunks(input.embeddings, historyChunks, input.query, 4),
+    rankChunksWithVector(input.embeddings, knowledgeChunks, queryVector, 8),
+    rankChunksWithVector(input.embeddings, memoryChunks, queryVector, 5),
+    rankChunksWithVector(input.embeddings, historyChunks, queryVector, 4),
   ]);
 
   const boundary = knowledgeChunks.filter((chunk) => chunk.kind === "boundary");

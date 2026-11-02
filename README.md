@@ -1,5 +1,7 @@
 # MIRA 镜语
 
+[![CI](https://github.com/236050650/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/236050650/mira/actions/workflows/ci.yml)
+
 跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。身份、说话方式和禁用表达固定写进系统提示；角色知识和更早的对话用 LangChain 按当前这句话检索。生成回复仍走自有模型网关，不经过 LangChain 的 Chat Model。
 
 本目录是可公开的应用代码，许可证为 [MIT](./LICENSE)。
@@ -12,6 +14,14 @@
   <img src="./docs/screenshots/detail.jpg" alt="角色" width="180" />
   <img src="./docs/screenshots/chat.jpg" alt="对话" width="180" />
 </p>
+
+## RAG 检索评估
+
+| Embedding Model | Queries (w/ Expected) | Hit@3 | Hit Rate | MRR |
+|-----------------|----------------------|-------|----------|-----|
+| Hash (512-d)    | 13/16 | 7/13 | 53.8% | 0.500 |
+
+评估使用**语义改写问题**(非关键词匹配),包含 16 个问题(13 个可回答 + 3 个干扰项),覆盖霍去病、孔子、王阳明、李白 4 个人格。完整报告见 [reports/rag-eval.md](./reports/rag-eval.md)。bge-m3 评估需本地 Ollama(未自动化)。
 
 ## 检索与生成
 
@@ -103,6 +113,15 @@ npm run dev
 
 - 默认使用 `apps/web/app/data.ts` 本地 Demo 数据
 - 设置 `NEXT_PUBLIC_MIRA_API_URL=http://127.0.0.1:4000` 后，可通过 `useApiMode()` 切换为真实 API（见 `apps/web/lib/api.ts`）
+
+**公开 Demo 端点速率限制：**
+
+`/api/demo-chat` 端点（Web Demo 的简化对话路径）实现了以下保护机制：
+
+- 每个 IP 每小时最多 10 次请求
+- 全局每日 1000 次请求上限
+- 超出限制返回 429 状态码，fail-closed 机制
+- **生产环境应配置独立密钥并移除或加固此端点**
 
 ### 5. 启动 Mobile（Expo）
 

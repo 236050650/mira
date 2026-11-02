@@ -84,7 +84,12 @@ export async function buildApp(options?: {
     embedModel: config.ollamaEmbedModel,
     timeoutMs: Math.min(config.modelTimeoutMs, 4000),
   });
-  const retrieval = new RetrievalIndex(handle.db, embedding.embeddings, embedding.modelId);
+  const retrieval = new RetrievalIndex(
+    handle.db,
+    embedding.embeddings,
+    embedding.modelId,
+    config.ragMinScore,
+  );
   const chat = new ChatService(handle.db, gateway, config, retrieval);
   const loginLimiter = new FixedWindowRateLimiter(config.loginRateLimit, config.rateLimitWindowMs);
   const chatLimiter = new FixedWindowRateLimiter(config.chatRateLimit, config.rateLimitWindowMs);
@@ -141,7 +146,16 @@ export async function buildApp(options?: {
     requireChatRateLimit,
   });
   registerMemoryRoutes(app, { db: handle.db, requireAuth, retrieval });
-  registerModelRoutes(app, { db: handle.db, gateway, config, requireAuth });
+  registerModelRoutes(app, { 
+    db: handle.db, 
+    gateway, 
+    config, 
+    requireAuth,
+    checkEmbeddingHealth: async () => {
+      const { checkEmbeddingHealth } = await import("@mira/rag");
+      return checkEmbeddingHealth(config.ollamaBaseUrl);
+    },
+  });
 
   app.addHook("onClose", async () => {
     await handle.close();
