@@ -20,4 +20,8 @@ export declare function resolveEmbeddings(options: {
     embeddings: Embeddings;
     modelId: string;
 }>;
+export declare function checkEmbeddingHealth(ollamaBaseUrl: string): Promise<{
+    available: boolean;
+    model: string | null;
+}>;
 //# sourceMappingURL=embeddings.d.ts.map

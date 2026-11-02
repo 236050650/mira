@@ -5,6 +5,7 @@ import {
   type MessageCompletedEvent,
   type MessageDeltaEvent,
   type MessageFailedEvent,
+  type MessageSourcesEvent,
   type MessageUsageEvent,
   type ModelProfileId,
   type SseEventName,

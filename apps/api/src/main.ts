@@ -153,7 +153,7 @@ export async function buildApp(options?: {
     requireAuth,
     checkEmbeddingHealth: async () => {
       const { checkEmbeddingHealth } = await import("@mira/rag");
-      return checkEmbeddingHealth(config.ollama.baseUrl);
+      return checkEmbeddingHealth(config.ollamaBaseUrl);
     },
   });
 
