@@ -90,6 +90,30 @@ async function rankChunks(
   });
 }
 
+async function rankChunksWithVector(
+  embeddings: Embeddings,
+  chunks: RetrievalChunk[],
+  queryVector: number[],
+  k: number,
+): Promise<RetrievalChunk[]> {
+  if (chunks.length === 0 || k <= 0) return [];
+  const store = new MemoryVectorStore(embeddings);
+  await store.addVectors(
+    chunks.map((chunk) => chunk.embedding),
+    chunks.map((chunk) => ({
+      pageContent: chunk.content,
+      metadata: { sourceId: chunk.sourceId },
+    })),
+  );
+  const found = await store.similaritySearchVectorWithScore(queryVector, Math.min(k, chunks.length));
+  const byId = new Map(chunks.map((chunk) => [chunk.sourceId, chunk]));
+  return found.flatMap(([doc]) => {
+    const sourceId = String(doc.metadata.sourceId ?? "");
+    const chunk = byId.get(sourceId);
+    return chunk ? [chunk] : [];
+  });
+}
+
 function dedupe(chunks: RetrievalChunk[]): RetrievalChunk[] {
   const seen = new Set<string>();
   const ordered: RetrievalChunk[] = [];
@@ -150,10 +174,12 @@ export async function retrievePersonaContext(input: {
       !excluded.has(chunk.sourceId),
   );
 
+  const queryVector = await input.embeddings.embedQuery(input.query);
+
   const [rankedKnowledge, rankedMemories, rankedHistory] = await Promise.all([
-    rankChunks(input.embeddings, knowledgeChunks, input.query, 8),
-    rankChunks(input.embeddings, memoryChunks, input.query, 5),
-    rankChunks(input.embeddings, historyChunks, input.query, 4),
+    rankChunksWithVector(input.embeddings, knowledgeChunks, queryVector, 8),
+    rankChunksWithVector(input.embeddings, memoryChunks, queryVector, 5),
+    rankChunksWithVector(input.embeddings, historyChunks, queryVector, 4),
   ]);
 
   const boundary = knowledgeChunks.filter((chunk) => chunk.kind === "boundary");
