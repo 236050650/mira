@@ -35,14 +35,36 @@ export type AppConfig = {
   rateLimitWindowMs: number;
 };
 
+const DEFAULT_ACCESS_SECRET = "dev-access-secret-change-me";
+const DEFAULT_REFRESH_SECRET = "dev-refresh-secret-change-me";
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const isProduction = env.NODE_ENV === "production";
+  const accessSecret = env.JWT_ACCESS_SECRET || DEFAULT_ACCESS_SECRET;
+  const refreshSecret = env.JWT_REFRESH_SECRET || DEFAULT_REFRESH_SECRET;
+
+  if (isProduction) {
+    if (!env.JWT_ACCESS_SECRET || accessSecret === DEFAULT_ACCESS_SECRET) {
+      throw new Error(
+        "Production requires JWT_ACCESS_SECRET to be set and must not use the default value. " +
+        "Please set a secure random secret in your environment."
+      );
+    }
+    if (!env.JWT_REFRESH_SECRET || refreshSecret === DEFAULT_REFRESH_SECRET) {
+      throw new Error(
+        "Production requires JWT_REFRESH_SECRET to be set and must not use the default value. " +
+        "Please set a secure random secret in your environment."
+      );
+    }
+  }
+
   return {
     port: Number(env.API_PORT || 4000),
     host: env.API_HOST || "0.0.0.0",
     databaseUrl: env.DATABASE_URL,
     usePglite: env.USE_PGLITE === "true" || !env.DATABASE_URL,
-    jwtAccessSecret: env.JWT_ACCESS_SECRET || "dev-access-secret-change-me",
-    jwtRefreshSecret: env.JWT_REFRESH_SECRET || "dev-refresh-secret-change-me",
+    jwtAccessSecret: accessSecret,
+    jwtRefreshSecret: refreshSecret,
     accessTokenTtlSec: Number(env.ACCESS_TOKEN_TTL_SEC || 900),
     refreshTokenTtlSec: Number(env.REFRESH_TOKEN_TTL_SEC || 60 * 60 * 24 * 30),
     corsOrigins: (
