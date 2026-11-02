@@ -61,7 +61,7 @@ describe("long conversation budget", () => {
       expect(res.body).toContain("message.completed");
     }
 
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 1000));
 
     const detail = await built.app.inject({
       method: "GET",

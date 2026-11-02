@@ -10,6 +10,8 @@ describe("composePersonaPrompt", () => {
       relationship: { title: "席间问学", level: "熟悉" },
       memories: [{ category: "preference", content: "用户不喜欢被说教" }],
       summary: "用户正在讨论学习与自律。",
+      retrievedKnowledge: ["《论语》谈学而时习，不把背诵当作学的全部。"],
+      retrievedHistory: ["用户：我想改掉只背结论的习惯。"],
     });
 
     expect(prompt).toContain("孔子");
@@ -20,6 +22,10 @@ describe("composePersonaPrompt", () => {
     expect(prompt).toContain("[当前关系]");
     expect(prompt).toContain("[长期记忆]");
     expect(prompt).toContain("[会话摘要]");
+    expect(prompt).toContain("[检索到的角色知识]");
+    expect(prompt).toContain("[相关较早对话]");
+    expect(prompt).toContain("学而时习");
+    expect(prompt).not.toContain(confuciusSeed.version.knowledge);
   });
 
   it("produces clearly different prompts for pikachu and confucius", () => {

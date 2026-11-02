@@ -62,6 +62,41 @@ export function extractMemoryCandidates(userText) {
     return [];
 }
 export const RELATIONSHIP_LEVELS = ["初见", "熟悉", "信赖", "默契"];
+export function trimToTokenBudget(text, tokenBudget) {
+    if (estimateTokens(text) <= tokenBudget)
+        return text;
+    let end = text.length;
+    while (end > 20 && estimateTokens(text.slice(0, end)) > tokenBudget) {
+        end = Math.floor(end * 0.85);
+    }
+    return text.slice(0, end).trim();
+}
+export function messagesOutsideRecentTurns(messages, keepUserTurns = 8) {
+    const userIds = messages.filter((message) => message.role === "user").map((message) => message.id);
+    const recentUserIds = new Set(userIds.slice(-keepUserTurns));
+    const firstRecent = messages.find((message) => recentUserIds.has(message.id));
+    if (!firstRecent)
+        return [];
+    const start = messages.indexOf(firstRecent);
+    const recentIds = new Set(messages.slice(start).map((message) => message.id));
+    return messages.filter((message) => !recentIds.has(message.id));
+}
+export function buildRuleSummary(turns, tokenBudget) {
+    const userLines = turns
+        .filter((turn) => turn.role === "user")
+        .map((turn) => turn.content.trim())
+        .filter(Boolean);
+    const preferences = userLines.filter((line) => extractMemoryCandidates(line).length > 0);
+    const questions = userLines.filter((line) => line.includes("？") || line.includes("?"));
+    const facts = userLines.filter((line) => !preferences.includes(line)).slice(0, 4);
+    const summary = [
+        `事实：${facts.map((line) => line.slice(0, 80)).join("；") || "（无）"}`,
+        `关系：已记录 ${userLines.length} 轮用户发言`,
+        `未完成话题：${questions.at(-1)?.slice(0, 80) || "（无）"}`,
+        `偏好：${preferences.map((line) => line.slice(0, 80)).join("；") || "（无）"}`,
+    ].join("\n");
+    return trimToTokenBudget(summary, tokenBudget);
+}
 export function advanceRelationship(level, events) {
     if (events.messageCount >= 40)
         return Math.min(level, 3) === 3 ? 3 : Math.max(level, 3);

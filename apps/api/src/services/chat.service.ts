@@ -10,15 +10,18 @@ import {
   type SseEventName,
 } from "@mira/contracts";
 import {
+  advanceRelationship,
   allocateContextBudget,
+  buildRuleSummary,
   extractMemoryCandidates,
+  messagesOutsideRecentTurns,
   selectRecentMessages,
   shouldSummarize,
-  type ChatTurn,
+  trimToTokenBudget,
 } from "@mira/domain";
 import type { ModelGateway } from "@mira/model-gateway";
 import { composePersonaPrompt, type PersonaExample, type PersonaVersion } from "@mira/prompts";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/client.js";
 import {
@@ -30,6 +33,7 @@ import {
   personaVersions,
   personas,
 } from "../db/schema.js";
+import type { RetrievalIndex } from "./retrieval-index.js";
 
 export type ChatStreamCallback = (
   event: SseEventName,
@@ -112,12 +116,17 @@ function mapPersonaVersion(row: typeof personaVersions.$inferSelect): PersonaVer
 }
 
 const RELATIONSHIP_LABELS = ["初见", "熟悉", "信赖", "默契"] as const;
+const STREAM_FLUSH_MS = 200;
 
 export class ChatService {
+  private readonly postProcessQueue = new Map<string, Promise<void>>();
+  private readonly stopFlags = new Set<string>();
+
   constructor(
     private readonly db: Db,
     private readonly gateway: ModelGateway,
     private readonly config: AppConfig,
+    private readonly retrieval: RetrievalIndex,
   ) {}
 
   async streamMessage(input: StreamMessageInput): Promise<void> {
@@ -259,6 +268,7 @@ export class ChatService {
       ),
     });
     if (!generation) return false;
+    this.stopFlags.add(generationId);
     await this.db
       .update(generations)
       .set({ stopRequested: true, updatedAt: new Date() })
@@ -378,16 +388,6 @@ export class ChatService {
       return;
     }
 
-    const memoryRows = await this.db.query.memories.findMany({
-      where: and(
-        eq(memories.userId, conversation.userId),
-        eq(memories.personaId, conversation.personaId),
-        isNull(memories.deletedAt),
-      ),
-      orderBy: [desc(memories.updatedAt)],
-      limit: 5,
-    });
-
     const historyRows = await this.db.query.messages.findMany({
       where: and(
         eq(messages.conversationId, conversation.id),
@@ -402,17 +402,52 @@ export class ChatService {
     }
 
     const budget = allocateContextBudget();
-    const historyTurns: ChatTurn[] = historyRows
+    const historyTurns = historyRows
       .filter(
         (m) =>
           !excludeIds.has(m.id) && (m.role === "user" || m.role === "assistant"),
       )
       .map((m) => ({
+        id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,
       }));
 
     const recentTurns = selectRecentMessages(historyTurns, budget.recentMessages);
+    const personaVersion = mapPersonaVersion(version);
+    let retrieved = {
+      knowledge: [] as string[],
+      memories: [] as Array<{ sourceId: string; category: string; content: string }>,
+      history: [] as Array<{ sourceId: string; content: string }>,
+    };
+    try {
+      await this.retrieval.ensurePersonaKnowledge({
+        personaId: persona.id,
+        versionId: version.id,
+        knowledge: personaVersion.knowledge,
+        knowledgeBoundary: personaVersion.knowledgeBoundary,
+      });
+      retrieved = await this.retrieval.retrieve({
+        query: userContent,
+        personaId: persona.id,
+        userId: conversation.userId,
+        conversationId: conversation.id,
+        excludeSourceIds: recentTurns.map((turn) => turn.id),
+        budgets: {
+          knowledge: budget.platformAndPersona,
+          memories: budget.memories,
+          history: budget.summary,
+        },
+      });
+      if (retrieved.memories.length > 0) {
+        await this.db
+          .update(memories)
+          .set({ lastUsedAt: new Date(), updatedAt: new Date() })
+          .where(inArray(memories.id, retrieved.memories.map((memory) => memory.sourceId)));
+      }
+    } catch (error) {
+      console.error("retrieval failed", error);
+    }
     const relationshipLevel =
       RELATIONSHIP_LABELS[Math.min(conversation.relationshipLevel, RELATIONSHIP_LABELS.length - 1)] ??
       "初见";
@@ -423,19 +458,24 @@ export class ChatService {
 
     const systemPrompt = composePersonaPrompt({
       personaName: persona.name,
-      personaVersion: mapPersonaVersion(version),
+      personaVersion,
       relationship: {
         level: relationshipLevel,
         title: relationshipState.title,
         events: relationshipState.events,
       },
-      memories: memoryRows.map((m) => ({ category: m.category, content: m.content })),
+      memories: retrieved.memories.map((memory) => ({
+        category: memory.category,
+        content: memory.content,
+      })),
       summary: conversation.summary ?? undefined,
+      retrievedKnowledge: retrieved.knowledge,
+      retrievedHistory: retrieved.history.map((item) => item.content),
     });
 
     const chatMessages = [
       { role: "system" as const, content: systemPrompt },
-      ...recentTurns.map((t: ChatTurn) => ({ role: t.role, content: t.content })),
+      ...recentTurns.map((turn) => ({ role: turn.role, content: turn.content })),
     ];
     if (!isRegenerate) {
       chatMessages.push({ role: "user" as const, content: userContent });
@@ -451,6 +491,8 @@ export class ChatService {
     let outputTokens = 0;
     let failed = false;
 
+    let lastFlushAt = 0;
+    let lastStopCheck = 0;
     try {
       for await (const chunk of provider.streamChat({
         requestId,
@@ -460,7 +502,10 @@ export class ChatService {
         thinking: profile.thinking,
         signal,
       })) {
-        if (await this.shouldStop(generation.id, signal)) {
+        const now = Date.now();
+        const checkDatabase = now - lastStopCheck >= STREAM_FLUSH_MS;
+        if (checkDatabase) lastStopCheck = now;
+        if (await this.shouldStop(generation.id, signal, checkDatabase)) {
           finishReason = "interrupted";
           break;
         }
@@ -472,10 +517,13 @@ export class ChatService {
             assistantMessageId: assistantMessage.id,
             delta: chunk.delta,
           });
-          await this.db
-            .update(messages)
-            .set({ content: accumulated, updatedAt: new Date() })
-            .where(eq(messages.id, assistantMessage.id));
+          if (now - lastFlushAt >= STREAM_FLUSH_MS) {
+            lastFlushAt = now;
+            await this.db
+              .update(messages)
+              .set({ content: accumulated, updatedAt: new Date() })
+              .where(eq(messages.id, assistantMessage.id));
+          }
         }
 
         if (chunk.type === "usage" && chunk.usage) {
@@ -576,15 +624,20 @@ export class ChatService {
         finishReason,
       });
 
-      if (finalStatus === "completed" && !isRegenerate) {
-        void this.postProcess({
-          conversationId: conversation.id,
-          userId: conversation.userId,
-          personaId: conversation.personaId,
-          userMessageId: userMessage.id,
-          userContent,
-          assistantContent: accumulated,
-        });
+      if (finalStatus === "completed") {
+        this.enqueuePostProcess(conversation.id, () =>
+          this.postProcess({
+            conversationId: conversation.id,
+            userId: conversation.userId,
+            personaId: conversation.personaId,
+            modelProfileId: profile.id,
+            userMessageId: userMessage.id,
+            assistantMessageId: assistantMessage.id,
+            userContent,
+            assistantContent: accumulated,
+            isRegenerate,
+          }),
+        );
       }
     } catch (error) {
       const aborted = error instanceof Error && error.name === "AbortError";
@@ -616,14 +669,22 @@ export class ChatService {
         code: ErrorCodes.INTERNAL_ERROR,
         message: "生成失败",
       });
+    } finally {
+      this.stopFlags.delete(generation.id);
     }
   }
 
-  private async shouldStop(generationId: string, signal?: AbortSignal): Promise<boolean> {
-    if (signal?.aborted) return true;
+  private async shouldStop(
+    generationId: string,
+    signal?: AbortSignal,
+    checkDatabase = true,
+  ): Promise<boolean> {
+    if (signal?.aborted || this.stopFlags.has(generationId)) return true;
+    if (!checkDatabase) return false;
     const row = await this.db.query.generations.findFirst({
       where: eq(generations.id, generationId),
     });
+    if (row?.stopRequested) this.stopFlags.add(generationId);
     return row?.stopRequested ?? false;
   }
 
@@ -645,39 +706,150 @@ export class ChatService {
     params.onEvent("message.failed", { code: params.code, message: params.message });
   }
 
+  private enqueuePostProcess(conversationId: string, work: () => Promise<void>) {
+    const previous = this.postProcessQueue.get(conversationId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(work);
+    this.postProcessQueue.set(conversationId, next);
+    void next.finally(() => {
+      if (this.postProcessQueue.get(conversationId) === next) {
+        this.postProcessQueue.delete(conversationId);
+      }
+    });
+  }
+
+  private async summarizeWithModel(input: {
+    previous: string | null;
+    turns: Array<{ role: "user" | "assistant"; content: string }>;
+    modelProfileId: ModelProfileId;
+    tokenBudget: number;
+  }): Promise<string | null> {
+    if (this.gateway.mode === "mock") return null;
+    let profile;
+    try {
+      profile = this.gateway.resolveProfile(input.modelProfileId);
+    } catch {
+      return null;
+    }
+    if (profile.provider === "deepseek" && this.gateway.mode === "remote" && !this.gateway.canUseRemote()) {
+      return null;
+    }
+    const transcript = input.turns
+      .map((turn) => `${turn.role === "user" ? "用户" : "角色"}：${turn.content}`)
+      .join("\n");
+    const provider = this.gateway.getProvider(profile.provider);
+    let summary = "";
+    let totalTokens = 0;
+    for await (const chunk of provider.streamChat({
+      requestId: randomUUID(),
+      model: profile.model,
+      messages: [
+        {
+          role: "system",
+          content: "把对话压缩成四行：事实、关系、未完成话题、偏好。不要逐字复述，不要加入新事实。",
+        },
+        {
+          role: "user",
+          content: `${input.previous ? `已有摘要：\n${input.previous}\n\n` : ""}新增对话：\n${transcript}`,
+        },
+      ],
+      maxOutputTokens: 400,
+      thinking: "disabled",
+    })) {
+      if (chunk.type === "content" && chunk.delta) summary += chunk.delta;
+      if (chunk.type === "usage" && chunk.usage) totalTokens = chunk.usage.totalTokens;
+    }
+    if (profile.provider === "deepseek" && totalTokens > 0) {
+      this.gateway.addRemoteUsage(totalTokens);
+    }
+    const trimmed = summary.trim();
+    return trimmed ? trimToTokenBudget(trimmed, input.tokenBudget) : null;
+  }
+
   private async postProcess(params: {
     conversationId: string;
     userId: string;
     personaId: string;
+    modelProfileId: ModelProfileId;
     userMessageId: string;
+    assistantMessageId: string;
     userContent: string;
     assistantContent: string;
+    isRegenerate: boolean;
   }) {
     try {
+      await this.retrieval.upsertMessage({
+        id: params.userMessageId,
+        userId: params.userId,
+        personaId: params.personaId,
+        conversationId: params.conversationId,
+        role: "user",
+        content: params.userContent,
+      });
+      await this.retrieval.upsertMessage({
+        id: params.assistantMessageId,
+        userId: params.userId,
+        personaId: params.personaId,
+        conversationId: params.conversationId,
+        role: "assistant",
+        content: params.assistantContent,
+      });
+      if (params.isRegenerate) return;
+
+      const conversation = await this.db.query.conversations.findFirst({
+        where: eq(conversations.id, params.conversationId),
+      });
       const rows = await this.db.query.messages.findMany({
         where: and(eq(messages.conversationId, params.conversationId), eq(messages.status, "completed")),
       });
-      const turnCount = rows.filter((m) => m.role === "user").length;
-      if (shouldSummarize(turnCount)) {
-        const summaryParts = rows
-          .slice(-20)
-          .map((m) => `${m.role === "user" ? "用户" : "助手"}：${m.content.slice(0, 120)}`);
-        const summary = summaryParts.join("\n").slice(0, 1500);
-        const lastMessage = rows.at(-1);
-        await this.db
-          .update(conversations)
-          .set({
-            summary,
-            summaryThroughMessageId: lastMessage?.id ?? null,
-            updatedAt: new Date(),
-          })
-          .where(eq(conversations.id, params.conversationId));
+      const ordered = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const userCount = ordered.filter((message) => message.role === "user").length;
+      const nextLevel = advanceRelationship(conversation?.relationshipLevel ?? 0, { messageCount: userCount });
+      let summary = conversation?.summary ?? null;
+      let summaryThroughMessageId = conversation?.summaryThroughMessageId ?? null;
+
+      if (shouldSummarize(userCount)) {
+        const older = messagesOutsideRecentTurns(ordered, 8);
+        const throughIndex = summaryThroughMessageId
+          ? ordered.findIndex((message) => message.id === summaryThroughMessageId)
+          : -1;
+        const fresh = older.filter((message) => {
+          if (message.role !== "user" && message.role !== "assistant") return false;
+          if (throughIndex < 0) return true;
+          return ordered.findIndex((item) => item.id === message.id) > throughIndex;
+        });
+        if (fresh.length > 0) {
+          const tokenBudget = allocateContextBudget().summary;
+          const turns = fresh.map((message) => ({
+            role: message.role as "user" | "assistant",
+            content: message.content,
+          }));
+          const modelSummary = await this.summarizeWithModel({
+            previous: summary,
+            turns,
+            modelProfileId: params.modelProfileId,
+            tokenBudget,
+          });
+          const piece = modelSummary ?? buildRuleSummary(turns, tokenBudget);
+          summary = trimToTokenBudget([summary, piece].filter(Boolean).join("\n"), tokenBudget);
+          summaryThroughMessageId = fresh.at(-1)?.id ?? summaryThroughMessageId;
+        }
       }
+
+      await this.db
+        .update(conversations)
+        .set({
+          summary,
+          summaryThroughMessageId,
+          relationshipLevel: nextLevel,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, params.conversationId));
 
       const candidates = extractMemoryCandidates(params.userContent);
       for (const candidate of candidates) {
+        const id = randomUUID();
         await this.db.insert(memories).values({
-          id: randomUUID(),
+          id,
           userId: params.userId,
           personaId: params.personaId,
           conversationId: params.conversationId,
@@ -685,6 +857,14 @@ export class ChatService {
           category: candidate.category,
           content: candidate.content,
           confidence: candidate.confidence,
+        });
+        await this.retrieval.upsertMemory({
+          id,
+          userId: params.userId,
+          personaId: params.personaId,
+          conversationId: params.conversationId,
+          category: candidate.category,
+          content: candidate.content,
         });
       }
     } catch (error) {

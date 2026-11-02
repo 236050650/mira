@@ -47,6 +47,8 @@ apps/api/drizzle/meta/*_snapshot.json
 *.log
 .DS_Store
 apps/api/.pglite-data/
+.sites-runtime/
+apps/mobile/.expo/
 
 # app build outputs (keep packages/*/dist — workspace main entry)
 apps/**/dist/

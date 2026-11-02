@@ -58,5 +58,7 @@ export type ComposePersonaPromptInput = {
   relationship?: RelationshipContext;
   memories?: MemorySnippet[];
   summary?: string;
+  retrievedKnowledge?: string[];
+  retrievedHistory?: string[];
   platformRules?: string;
 };

@@ -25,6 +25,7 @@ export type AppConfig = {
   ollamaBaseUrl: string;
   ollamaApiKey: string;
   ollamaDefaultModel: string;
+  ollamaEmbedModel: string;
   modelTimeoutMs: number;
   modelMaxOutputTokens: number;
   dailyRemoteTokenBudget: number;
@@ -56,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ollamaBaseUrl: env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
     ollamaApiKey: env.OLLAMA_API_KEY || "ollama",
     ollamaDefaultModel: env.OLLAMA_DEFAULT_MODEL || "qwen3.5:latest",
+    ollamaEmbedModel: env.OLLAMA_EMBED_MODEL || "bge-m3",
     modelTimeoutMs: Number(env.MODEL_REQUEST_TIMEOUT_MS || 60000),
     modelMaxOutputTokens: Number(env.MODEL_MAX_OUTPUT_TOKENS || 800),
     dailyRemoteTokenBudget: Number(env.MODEL_DAILY_REMOTE_TOKEN_BUDGET || 200000),

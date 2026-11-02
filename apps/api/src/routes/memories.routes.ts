@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { memories } from "../db/schema.js";
 import { ErrorCodes, handleRouteError, sendError } from "../http/errors.js";
+import type { RetrievalIndex } from "../services/retrieval-index.js";
 
 function mapMemory(row: typeof memories.$inferSelect) {
   return {
@@ -23,7 +24,7 @@ function mapMemory(row: typeof memories.$inferSelect) {
 
 export function registerMemoryRoutes(
   app: FastifyInstance,
-  deps: { db: Db; requireAuth: (req: any, reply: any) => Promise<void> },
+  deps: { db: Db; requireAuth: (req: any, reply: any) => Promise<void>; retrieval: RetrievalIndex },
 ) {
   app.get("/v1/memories", { preHandler: deps.requireAuth }, async (request, reply) => {
     try {
@@ -70,6 +71,18 @@ export function registerMemoryRoutes(
         .where(eq(memories.id, id))
         .returning();
       if (!updated) throw new Error("update memory failed");
+      try {
+        await deps.retrieval.upsertMemory({
+          id: updated.id,
+          userId: updated.userId,
+          personaId: updated.personaId,
+          conversationId: updated.conversationId,
+          category: updated.category,
+          content: updated.content,
+        });
+      } catch (error) {
+        request.log.error({ err: error }, "memory reindex failed");
+      }
 
       return reply.send({ memory: mapMemory(updated) });
     } catch (error) {
@@ -93,6 +106,7 @@ export function registerMemoryRoutes(
         .update(memories)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(eq(memories.id, id));
+      await deps.retrieval.removeSource("memory", id);
 
       return reply.send({ ok: true });
     } catch (error) {

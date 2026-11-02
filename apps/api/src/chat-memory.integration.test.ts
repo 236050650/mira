@@ -59,7 +59,7 @@ describe("chat memory + model switch", () => {
     expect(stream.body).toContain("message.completed");
 
     // allow async postProcess
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 500));
 
     const list = await built.app.inject({
       method: "GET",

@@ -31,12 +31,12 @@ export type ChatTurn = {
   content: string;
 };
 
-export function selectRecentMessages(
-  messages: ChatTurn[],
+export function selectRecentMessages<T extends ChatTurn>(
+  messages: T[],
   tokenBudget: number,
   keepMinTurns = 6,
-): ChatTurn[] {
-  const selected: ChatTurn[] = [];
+): T[] {
+  const selected: T[] = [];
   let used = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i];
@@ -91,6 +91,48 @@ export function extractMemoryCandidates(userText: string): MemoryCandidate[] {
 
 export const RELATIONSHIP_LEVELS = ["初见", "熟悉", "信赖", "默契"] as const;
 export type RelationshipLevel = (typeof RELATIONSHIP_LEVELS)[number];
+
+export function trimToTokenBudget(text: string, tokenBudget: number): string {
+  if (estimateTokens(text) <= tokenBudget) return text;
+  let end = text.length;
+  while (end > 20 && estimateTokens(text.slice(0, end)) > tokenBudget) {
+    end = Math.floor(end * 0.85);
+  }
+  return text.slice(0, end).trim();
+}
+
+export function messagesOutsideRecentTurns<T extends { id: string; role: string }>(
+  messages: T[],
+  keepUserTurns = 8,
+): T[] {
+  const userIds = messages.filter((message) => message.role === "user").map((message) => message.id);
+  const recentUserIds = new Set(userIds.slice(-keepUserTurns));
+  const firstRecent = messages.find((message) => recentUserIds.has(message.id));
+  if (!firstRecent) return [];
+  const start = messages.indexOf(firstRecent);
+  const recentIds = new Set(messages.slice(start).map((message) => message.id));
+  return messages.filter((message) => !recentIds.has(message.id));
+}
+
+export function buildRuleSummary(
+  turns: Array<{ role: "user" | "assistant"; content: string }>,
+  tokenBudget: number,
+): string {
+  const userLines = turns
+    .filter((turn) => turn.role === "user")
+    .map((turn) => turn.content.trim())
+    .filter(Boolean);
+  const preferences = userLines.filter((line) => extractMemoryCandidates(line).length > 0);
+  const questions = userLines.filter((line) => line.includes("？") || line.includes("?"));
+  const facts = userLines.filter((line) => !preferences.includes(line)).slice(0, 4);
+  const summary = [
+    `事实：${facts.map((line) => line.slice(0, 80)).join("；") || "（无）"}`,
+    `关系：已记录 ${userLines.length} 轮用户发言`,
+    `未完成话题：${questions.at(-1)?.slice(0, 80) || "（无）"}`,
+    `偏好：${preferences.map((line) => line.slice(0, 80)).join("；") || "（无）"}`,
+  ].join("\n");
+  return trimToTokenBudget(summary, tokenBudget);
+}
 
 export function advanceRelationship(
   level: number,

@@ -15,7 +15,7 @@
     "dev:api": "npm run dev -w @mira/api",
     "dev:web": "npm run dev -w @mira/web",
     "dev:mobile": "npm run start -w @mira/mobile",
-    "build": "npm run build -w @mira/contracts && npm run build -w @mira/domain && npm run build -w @mira/model-gateway && npm run build -w @mira/prompts && npm run build -w @mira/ui && npm run build -w @mira/api && npm run build -w @mira/web",
+    "build": "npm run build -w @mira/contracts && npm run build -w @mira/domain && npm run build -w @mira/model-gateway && npm run build -w @mira/prompts && npm run build -w @mira/ui && npm run build -w @mira/rag && npm run build -w @mira/api && npm run build -w @mira/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

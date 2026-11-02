@@ -1,6 +1,17 @@
 # MIRA 镜语
 
-跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。
+跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。身份、说话方式和禁用表达固定写进系统提示；角色知识和更早的对话用 LangChain 按当前这句话检索。生成回复仍走自有模型网关，不经过 LangChain 的 Chat Model。
+
+本目录是可公开的应用代码，许可证为 [MIT](./LICENSE)。
+
+## 检索与生成
+
+一轮对话分成两段：
+
+1. `@mira/rag` 用 `RecursiveCharacterTextSplitter` 切分角色知识，用 `OllamaEmbeddings`（默认 `bge-m3`）或离线哈希向量嵌入，再用 `MemoryVectorStore` 召回知识、长期记忆和最近窗口之外的旧消息。向量存在 `retrieval_chunks`，进程重启后不用重切原文。
+2. `@mira/model-gateway` 按 `mock` / `local` / `remote` 流式生成。停止、日预算和 `think:false` 都留在这一层。Ollama 不可用时检索自动退回哈希向量，聊天不会因此中断。
+
+固定上下文还有平台规则、关系阶段和会话摘要。摘要在超过 12 轮后压缩窗口外的旧对话，不把截断原文再贴一遍。
 
 ## 仓库结构
 
@@ -15,6 +26,7 @@ persona-app-demo/
 │   ├── domain/       # 领域逻辑
 │   ├── model-gateway/# DeepSeek / Ollama / Mock 提供方
 │   ├── prompts/      # 提示词模板
+│   ├── rag/          # LangChain 切分、嵌入与检索
 │   └── ui/           # 共享设计 token
 ├── docker/           # Postgres docker compose
 ├── docs/             # PRD、技术设计、验收方案
@@ -101,7 +113,7 @@ npm run dev:mobile
 | `remote` | 按选择调用 DeepSeek / Ollama 真实模型（需配置密钥与网络）；兼容旧值 `live` |
 | `local` | 所有真实模型请求使用 `OLLAMA_DEFAULT_MODEL` 指定的 Ollama 模型 |
 
-在 `.env.local` 中设置 `MODEL_MODE`。模型状态可通过 `GET /v1/models/status`（需登录）查看。
+在 `.env.local` 中设置 `MODEL_MODE`。`OLLAMA_EMBED_MODEL` 只影响检索向量，默认 `bge-m3`；`mock` 模式不访问 Ollama。模型状态可通过 `GET /v1/models/status`（需登录）查看。
 
 远程模式下，`DEEPSEEK_DEFAULT_MODEL` 和 `DEEPSEEK_PREMIUM_MODEL` 分别配置普通和高级模型的实际名称。模型状态、聊天请求与用量记录保持一致。未知的 `MODEL_MODE` 值会在启动时报错。
 

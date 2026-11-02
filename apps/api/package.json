@@ -22,6 +22,7 @@
     "@mira/domain": "*",
     "@mira/model-gateway": "*",
     "@mira/prompts": "*",
+    "@mira/rag": "*",
     "argon2": "^0.43.0",
     "dotenv": "^16.5.0",
     "drizzle-orm": "0.45.2",

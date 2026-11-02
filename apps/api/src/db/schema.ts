@@ -202,6 +202,24 @@ export const modelUsage = pgTable("model_usage", {
   index("model_usage_created_provider_idx").on(t.createdAt, t.provider),
 ]);
 
+export const retrievalChunks = pgTable("retrieval_chunks", {
+  id: id(),
+  scope: text("scope").notNull(),
+  personaId: uuid("persona_id").notNull().references(() => personas.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+  sourceId: text("source_id").notNull(),
+  content: text("content").notNull(),
+  embedding: jsonb("embedding").$type<number[]>().notNull(),
+  embeddingModel: text("embedding_model").notNull(),
+  contentHash: text("content_hash").notNull(),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("retrieval_chunks_scope_source_uidx").on(t.scope, t.sourceId),
+  index("retrieval_chunks_persona_scope_idx").on(t.personaId, t.scope),
+  index("retrieval_chunks_conversation_idx").on(t.conversationId),
+]);
+
 export const generations = pgTable("generations", {
   id: id(),
   conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),

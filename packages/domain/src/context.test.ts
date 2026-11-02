@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   allocateContextBudget,
   estimateTokens,
+  buildRuleSummary,
   extractMemoryCandidates,
+  messagesOutsideRecentTurns,
   selectRecentMessages,
   shouldSummarize,
 } from "../src/context.js";
@@ -33,5 +35,23 @@ describe("context helpers", () => {
   it("extracts preference memories", () => {
     expect(extractMemoryCandidates("请记住我不喝咖啡，更喜欢乌龙茶。")).toHaveLength(1);
     expect(extractMemoryCandidates("今天天气还行。")).toHaveLength(0);
+  });
+
+  it("summarizes only the turns outside the recent window", () => {
+    const messages = Array.from({ length: 12 }, (_, index) => ({
+      id: `m${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+    }));
+    const older = messagesOutsideRecentTurns(messages, 2);
+    expect(older.some((message) => message.id === "m0")).toBe(true);
+    expect(older.some((message) => message.id === "m10")).toBe(false);
+
+    const summary = buildRuleSummary(
+      [{ role: "user", content: "请记住我不喝咖啡，更喜欢乌龙茶。" }],
+      200,
+    );
+    expect(summary).toContain("事实：");
+    expect(summary).toContain("偏好：");
+    expect(summary).toContain("乌龙茶");
   });
 });

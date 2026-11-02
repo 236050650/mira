@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { createGatewayFromEnv } from "@mira/model-gateway";
+import { resolveEmbeddings } from "@mira/rag";
 import { AuthService } from "./auth/auth.service.js";
 import { loadConfig } from "./config.js";
 import { createDb, runMigrations, type DbHandle } from "./db/client.js";
@@ -12,6 +13,7 @@ import { registerMemoryRoutes } from "./routes/memories.routes.js";
 import { registerModelRoutes } from "./routes/models.routes.js";
 import { registerPersonaRoutes } from "./routes/personas.routes.js";
 import { ChatService } from "./services/chat.service.js";
+import { RetrievalIndex } from "./services/retrieval-index.js";
 import { FixedWindowRateLimiter } from "./http/rate-limiter.js";
 
 export type BuiltApp = {
@@ -21,6 +23,7 @@ export type BuiltApp = {
   auth: AuthService;
   gateway: ReturnType<typeof createGatewayFromEnv>;
   chat: ChatService;
+  retrieval: RetrievalIndex;
 };
 
 export async function buildApp(options?: {
@@ -75,7 +78,14 @@ export async function buildApp(options?: {
     MODEL_REQUEST_TIMEOUT_MS: String(config.modelTimeoutMs),
     MODEL_DAILY_REMOTE_TOKEN_BUDGET: String(config.dailyRemoteTokenBudget),
   });
-  const chat = new ChatService(handle.db, gateway, config);
+  const embedding = await resolveEmbeddings({
+    mode: config.modelMode,
+    ollamaBaseUrl: config.ollamaBaseUrl,
+    embedModel: config.ollamaEmbedModel,
+    timeoutMs: Math.min(config.modelTimeoutMs, 4000),
+  });
+  const retrieval = new RetrievalIndex(handle.db, embedding.embeddings, embedding.modelId);
+  const chat = new ChatService(handle.db, gateway, config, retrieval);
   const loginLimiter = new FixedWindowRateLimiter(config.loginRateLimit, config.rateLimitWindowMs);
   const chatLimiter = new FixedWindowRateLimiter(config.chatRateLimit, config.rateLimitWindowMs);
 
@@ -130,14 +140,14 @@ export async function buildApp(options?: {
     requireAuth,
     requireChatRateLimit,
   });
-  registerMemoryRoutes(app, { db: handle.db, requireAuth });
+  registerMemoryRoutes(app, { db: handle.db, requireAuth, retrieval });
   registerModelRoutes(app, { db: handle.db, gateway, config, requireAuth });
 
   app.addHook("onClose", async () => {
     await handle.close();
   });
 
-  return { app, config, handle, auth, gateway, chat };
+  return { app, config, handle, auth, gateway, chat, retrieval };
 }
 
 export async function startServer() {
