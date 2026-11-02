@@ -4,6 +4,14 @@
 
 本目录是可公开的应用代码，许可证为 [MIT](./LICENSE)。
 
+## 界面
+
+| 登录 | 首页 |
+| --- | --- |
+| ![登录](./docs/screenshots/auth.jpg) | ![首页](./docs/screenshots/home.jpg) |
+| 角色 | 对话 |
+| ![霍去病](./docs/screenshots/detail.jpg) | ![与霍去病对谈](./docs/screenshots/chat.jpg) |
+
 ## 检索与生成
 
 一轮对话分成两段：
