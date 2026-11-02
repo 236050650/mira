@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
@@ -38,8 +39,11 @@ export async function createDb(config: AppConfig): Promise<DbHandle> {
   const configuredDir = process.env.PGLITE_DATA_DIR?.trim();
   const client =
     configuredDir === "memory"
-      ? new PGlite()
-      : new PGlite(configuredDir || resolve(here, "../../.pglite-data"));
+      ? new PGlite({ extensions: { vector } })
+      : new PGlite({
+          dataDir: configuredDir || resolve(here, "../../.pglite-data"),
+          extensions: { vector },
+        });
   const db = drizzlePglite(client, { schema });
   return {
     db,

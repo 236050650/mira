@@ -16,7 +16,8 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.4",
+    "@electric-sql/pglite": "^0.5.14",
+    "@electric-sql/pglite-pgvector": "^0.0.15",
     "@fastify/cors": "^11.0.1",
     "@mira/contracts": "*",
     "@mira/domain": "*",
@@ -28,6 +29,7 @@
     "drizzle-orm": "0.45.2",
     "fastify": "^5.3.3",
     "jose": "^6.0.11",
+    "pgvector": "^0.3.0",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"
   },
