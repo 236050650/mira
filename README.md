@@ -1,5 +1,7 @@
 # MIRA 镜语
 
+[![CI](https://github.com/236050650/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/236050650/mira/actions/workflows/ci.yml)
+
 跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。身份、说话方式和禁用表达固定写进系统提示；角色知识和更早的对话用 LangChain 按当前这句话检索。生成回复仍走自有模型网关，不经过 LangChain 的 Chat Model。
 
 本目录是可公开的应用代码，许可证为 [MIT](./LICENSE)。
