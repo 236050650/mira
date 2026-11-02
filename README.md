@@ -104,6 +104,15 @@ npm run dev
 - 默认使用 `apps/web/app/data.ts` 本地 Demo 数据
 - 设置 `NEXT_PUBLIC_MIRA_API_URL=http://127.0.0.1:4000` 后，可通过 `useApiMode()` 切换为真实 API（见 `apps/web/lib/api.ts`）
 
+**公开 Demo 端点速率限制：**
+
+`/api/demo-chat` 端点（Web Demo 的简化对话路径）实现了以下保护机制：
+
+- 每个 IP 每小时最多 10 次请求
+- 全局每日 1000 次请求上限
+- 超出限制返回 429 状态码，fail-closed 机制
+- **生产环境应配置独立密钥并移除或加固此端点**
+
 ### 5. 启动 Mobile（Expo）
 
 ```bash
