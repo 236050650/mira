@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { Embeddings } from "@langchain/core/embeddings";
 import { estimateTokens } from "@mira/domain";
 import {
   contentHash,
+  loadAndSplitText,
   splitPersonaKnowledge,
 } from "@mira/rag";
 import { and, eq, like, inArray, sql, notInArray } from "drizzle-orm";
@@ -211,6 +213,39 @@ export class RetrievalIndex {
       content,
       embedding,
     });
+  }
+
+  /** Ingest a markdown/text file through LangChain loaders + splitter. */
+  async ingestKnowledgeFile(input: {
+    personaId: string;
+    versionId: string;
+    filePath: string;
+    sourcePrefix?: string;
+  }): Promise<number> {
+    const raw = await readFile(input.filePath, "utf8");
+    const docs = await loadAndSplitText(raw, {
+      source: input.filePath,
+      versionId: input.versionId,
+    });
+    const prefix = input.sourcePrefix ?? input.versionId;
+    let count = 0;
+    for (let index = 0; index < docs.length; index += 1) {
+      const doc = docs[index];
+      if (!doc?.pageContent.trim()) continue;
+      const [embedding] = await this.embeddings.embedDocuments([doc.pageContent]);
+      if (!embedding) continue;
+      await this.upsert({
+        scope: "persona",
+        personaId: input.personaId,
+        userId: null,
+        conversationId: null,
+        sourceId: `${prefix}#file${index}`,
+        content: doc.pageContent,
+        embedding,
+      });
+      count += 1;
+    }
+    return count;
   }
 
   async removeSource(scope: "persona" | "memory" | "message", sourceId: string): Promise<void> {

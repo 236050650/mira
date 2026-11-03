@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/236050650/mira/actions/workflows/ci.yml/badge.svg)](https://github.com/236050650/mira/actions/workflows/ci.yml)
 
-跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。身份、说话方式和禁用表达固定写进系统提示；角色知识和更早的对话用 LangChain 按当前这句话检索。生成回复仍走自有模型网关，不经过 LangChain 的 Chat Model。
+跨平台人格模拟器 monorepo：Web 高保真 Demo、Fastify API、Expo 移动端共享同一套契约与视觉语言。身份、说话方式和禁用表达固定写进系统提示；角色知识和更早的对话用 LangChain.js 检索与 LCEL 编排；生成回复经 `GatewayChatModel` 走同一套 LangChain 消息类型，底层仍接 DeepSeek / Ollama / Mock 自有网关。
 
 本目录是可公开的应用代码，许可证为 [MIT](./LICENSE)。
 
@@ -25,12 +25,44 @@
 
 ## 检索与生成
 
+MIRA 在 LangChain.js 上串起「检索 → 提示词 → 流式生成」：
+
+1. **文档与向量（`@mira/rag`）**  
+   - `TextDocumentLoader` / `MarkdownDocumentLoader` / `PlainTextFileLoader`（`@langchain/core` `BaseDocumentLoader`）加载角色知识  
+   - `RecursiveCharacterTextSplitter` 切分后写入 `retrieval_chunks`  
+   - `OllamaEmbeddings`（默认 `bge-m3`）或离线哈希向量；Postgres 上 pgvector 双维 HNSW（512/1024）检索，`RAG_MIN_SCORE` 过滤；PGlite 回退内存相似度  
+   - LCEL：`createPersonaRetrievalRunnable` → `createPromptAssemblyRunnable`（见 `apps/api/src/services/chat-pipeline.ts`）
+
+2. **会话记忆**  
+   - `MiraConversationMemory`（`InMemoryChatMessageHistory`）维护最近窗口消息  
+   - 超过 12 轮仍由 `@mira/domain` 的 `shouldSummarize` 触发摘要压缩，摘要写入 `composePersonaPrompt` 的 `[会话摘要]` 段
+
+3. **模型网关（`@mira/model-gateway`）**  
+   - `GatewayChatModel`（`BaseChatModel`）包装 DeepSeek / Ollama / Mock 提供方  
+   - `streamChatViaLangChain` 将 `HumanMessage` / `AIMessage` / `SystemMessage` 流式映射回 SSE `ChatChunk`  
+   - `MODEL_MODE` 下的多提供方路由与日预算逻辑不变
+
+4. **可选工具**  
+   - `createPersonaKnowledgeLookupTool`（`DynamicStructuredTool`）供脚本或后续 Agent 路径复用
+
 一轮对话分成两段：
 
-1. `@mira/rag` 用 `RecursiveCharacterTextSplitter` 切分角色知识，用 `OllamaEmbeddings`（默认 `bge-m3`）或离线哈希向量嵌入，再用 `MemoryVectorStore` 召回知识、长期记忆和最近窗口之外的旧消息。向量存在 `retrieval_chunks`，进程重启后不用重切原文。
-2. `@mira/model-gateway` 按 `mock` / `local` / `remote` 流式生成。停止、日预算和 `think:false` 都留在这一层。Ollama 不可用时检索自动退回哈希向量，聊天不会因此中断。
+1. `@mira/rag` 按当前用户问题检索知识、长期记忆与窗口外历史（见上文 LangChain 链路）。
+2. `@mira/model-gateway` 经 `GatewayChatModel` 流式生成；停止、日预算和 `think:false` 仍留在网关层。Ollama 不可用时检索自动退回哈希向量，聊天不会因此中断。
 
 固定上下文还有平台规则、关系阶段和会话摘要。摘要在超过 12 轮后压缩窗口外的旧对话，不把截断原文再贴一遍。
+
+## LangChain 类与 API 一览
+
+| 区域 | LangChain 类型 / API |
+|---|---|
+| 聊天模型 | `BaseChatModel` → `GatewayChatModel`；`stream()` / `_streamResponseChunks` |
+| 消息 | `SystemMessage`, `HumanMessage`, `AIMessage`, `AIMessageChunk` |
+| 检索链 | `RunnableSequence`, `RunnableLambda`, `createPersonaRetrievalRunnable` |
+| 记忆 | `InMemoryChatMessageHistory`, `MiraConversationMemory` |
+| 文档 | `BaseDocumentLoader`, `Document`, `RecursiveCharacterTextSplitter` |
+| 工具 | `DynamicStructuredTool` → `createPersonaKnowledgeLookupTool` |
+| 向量 | `Embeddings`, `MemoryVectorStore`, `OllamaEmbeddings` |
 
 ## 仓库结构
 

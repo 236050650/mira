@@ -21,6 +21,7 @@ import {
   trimToTokenBudget,
 } from "@mira/domain";
 import type { ModelGateway } from "@mira/model-gateway";
+import { langChainToChatMessages, streamChatViaLangChain } from "@mira/model-gateway";
 import { composePersonaPrompt, type PersonaExample, type PersonaVersion } from "@mira/prompts";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppConfig } from "../config.js";
@@ -35,6 +36,7 @@ import {
   personas,
 } from "../db/schema.js";
 import type { RetrievalIndex } from "./retrieval-index.js";
+import { createConversationMemory, runPersonaChatContext } from "./chat-pipeline.js";
 
 export type ChatStreamCallback = (
   event: SseEventName,
@@ -123,6 +125,7 @@ const STREAM_FLUSH_MS = 200;
 export class ChatService {
   private readonly postProcessQueue = new Map<string, Promise<void>>();
   private readonly stopFlags = new Set<string>();
+  private readonly conversationMemory = createConversationMemory();
 
   constructor(
     private readonly db: Db,
@@ -422,16 +425,14 @@ export class ChatService {
       memories: [] as Array<{ sourceId: string; category: string; content: string; score: number }>,
       history: [] as Array<{ sourceId: string; content: string; score: number }>,
     };
+    let systemPrompt = "";
     try {
-      await this.retrieval.ensurePersonaKnowledge({
-        personaId: persona.id,
-        versionId: version.id,
-        knowledge: personaVersion.knowledge,
-        knowledgeBoundary: personaVersion.knowledgeBoundary,
-      });
-      retrieved = await this.retrieval.retrieve({
+      const built = await runPersonaChatContext(this.retrieval, {
         query: userContent,
         personaId: persona.id,
+        personaVersionId: version.id,
+        personaName: persona.name,
+        personaVersion,
         userId: conversation.userId,
         conversationId: conversation.id,
         excludeSourceIds: recentTurns.map((turn) => turn.id),
@@ -440,7 +441,17 @@ export class ChatService {
           memories: this.config.ragMemoriesBudget,
           history: this.config.ragHistoryBudget,
         },
+        relationship: {
+          level:
+            RELATIONSHIP_LABELS[Math.min(conversation.relationshipLevel, RELATIONSHIP_LABELS.length - 1)] ??
+            "初见",
+          title: (conversation.relationshipState as { title?: string }).title,
+          events: (conversation.relationshipState as { events?: string[] }).events,
+        },
+        summary: conversation.summary,
       });
+      retrieved = built.retrieval;
+      systemPrompt = built.systemPrompt;
       if (retrieved.memories.length > 0) {
         await this.db
           .update(memories)
@@ -476,38 +487,31 @@ export class ChatService {
       onEvent("message.sources", { sources: allSources });
     }
 
-    const relationshipLevel =
-      RELATIONSHIP_LABELS[Math.min(conversation.relationshipLevel, RELATIONSHIP_LABELS.length - 1)] ??
-      "初见";
-    const relationshipState = conversation.relationshipState as {
-      title?: string;
-      events?: string[];
-    };
+    await this.conversationMemory.seedRecentTurns(
+      recentTurns.map((turn) => ({ role: turn.role, content: turn.content })),
+    );
 
-    const systemPrompt = composePersonaPrompt({
-      personaName: persona.name,
-      personaVersion,
-      relationship: {
-        level: relationshipLevel,
-        title: relationshipState.title,
-        events: relationshipState.events,
-      },
-      memories: retrieved.memories.map((memory) => ({
-        category: memory.category,
-        content: memory.content,
-      })),
-      summary: conversation.summary ?? undefined,
-      retrievedKnowledge: retrieved.knowledge.map((item) => item.content),
-      retrievedHistory: retrieved.history.map((item) => item.content),
-    });
-
-    const chatMessages = [
-      { role: "system" as const, content: systemPrompt },
-      ...recentTurns.map((turn) => ({ role: turn.role, content: turn.content })),
-    ];
-    if (!isRegenerate) {
-      chatMessages.push({ role: "user" as const, content: userContent });
+    if (!systemPrompt) {
+      systemPrompt = composePersonaPrompt({
+        personaName: persona.name,
+        personaVersion,
+        relationship: {
+          level:
+            RELATIONSHIP_LABELS[Math.min(conversation.relationshipLevel, RELATIONSHIP_LABELS.length - 1)] ??
+            "初见",
+          title: (conversation.relationshipState as { title?: string }).title,
+          events: (conversation.relationshipState as { events?: string[] }).events,
+        },
+        summary: conversation.summary ?? undefined,
+      });
     }
+
+    const chatMessages = await this.conversationMemory.toChatMessages({
+      systemPrompt,
+      summary: null,
+      recentTurns: [],
+      currentUserMessage: !isRegenerate ? userContent : undefined,
+    });
 
     const provider = this.gateway.getProvider(profile.provider);
     const requestId = generation.id;
@@ -522,10 +526,10 @@ export class ChatService {
     let lastFlushAt = 0;
     let lastStopCheck = 0;
     try {
-      for await (const chunk of provider.streamChat({
+      for await (const chunk of streamChatViaLangChain(provider, {
         requestId,
         model: profile.model,
-        messages: chatMessages,
+        messages: langChainToChatMessages(chatMessages),
         maxOutputTokens: profile.maxOutputTokens,
         thinking: profile.thinking,
         signal,
@@ -767,7 +771,7 @@ export class ChatService {
     const provider = this.gateway.getProvider(profile.provider);
     let summary = "";
     let totalTokens = 0;
-    for await (const chunk of provider.streamChat({
+    for await (const chunk of streamChatViaLangChain(provider, {
       requestId: randomUUID(),
       model: profile.model,
       messages: [
