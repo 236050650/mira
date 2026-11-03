@@ -1,5 +1,4 @@
-import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-const CHINESE_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "；", "，", "、", " ", ""];
+import { loadAndSplitText } from "./loaders.js";
 function formatBoundary(boundary) {
     return Object.entries(boundary)
         .map(([key, value]) => {
@@ -12,17 +11,12 @@ function formatBoundary(boundary) {
         .join("\n");
 }
 export async function splitPersonaKnowledge(input) {
-    const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 400,
-        chunkOverlap: 40,
-        separators: CHINESE_SEPARATORS,
-    });
     const pieces = [];
     const knowledge = input.knowledge.trim();
     if (knowledge) {
-        const parts = await splitter.splitText(knowledge);
-        parts.forEach((part, index) => {
-            const content = part.trim();
+        const docs = await loadAndSplitText(knowledge, { versionId: input.versionId, kind: "knowledge" });
+        docs.forEach((doc, index) => {
+            const content = doc.pageContent.trim();
             if (!content)
                 return;
             pieces.push({

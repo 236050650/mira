@@ -20,3 +20,27 @@ export {
   type RetrievedMemory,
   type RetrievedSnippet,
 } from "./retrieve.js";
+export {
+  MarkdownDocumentLoader,
+  PlainTextFileLoader,
+  TextDocumentLoader,
+  loadAndSplitText,
+  splitDocumentsWithLangChain,
+  type LoaderMetadata,
+} from "./loaders.js";
+export {
+  MiraConversationMemory,
+  SUMMARY_COMPRESSION_THRESHOLD,
+  createMemoryMessageRunnable,
+  type ConversationTurn,
+  type MiraMemoryState,
+} from "./memory.js";
+export {
+  createPersonaRetrievalRunnable,
+  createPromptAssemblyRunnable,
+  type ComposedChatContext,
+  type PersonaRetrievalContext,
+  type PersonaRetrievalDeps,
+  type PersonaRetrievalInput,
+} from "./chain.js";
+export { createPersonaKnowledgeLookupTool } from "./tools.js";
